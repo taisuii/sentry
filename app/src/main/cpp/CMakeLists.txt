@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22.1)
 
-project("antifrida")
+project("antidebug")
 
 # Create the main library
 add_library(${CMAKE_PROJECT_NAME} SHARED
@@ -29,3 +29,22 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/detector
     ${CMAKE_CURRENT_SOURCE_DIR}/utils
 )
+
+# ========== libenvdetect (环境检测 Native 库) ==========
+add_library(envdetect SHARED
+    native-lib-env.cpp
+    detector/env_detector.cpp
+    utils/syscall_utils.cpp
+)
+target_include_directories(envdetect PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/detector
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils
+)
+target_link_libraries(envdetect
+    android
+    log
+)
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    target_link_options(envdetect PRIVATE "-Wl,-z,max-page-size=16384")
+endif()

@@ -80,6 +80,7 @@ dependencies {
     implementation libs.cardview
     implementation libs.coordinatorlayout
     implementation libs.localbroadcastmanager
+    implementation libs.play.integrity
     testImplementation libs.junit
     androidTestImplementation libs.ext.junit
     androidTestImplementation libs.espresso.core

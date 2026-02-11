@@ -8,11 +8,36 @@
 #include "detector/hook_detector.h"
 #include "detector/anti_debug.h"
 
+#define MAX_MEMORY_DETAILS 16
+
 #define LOG_TAG "AntiFrida"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 extern "C" {
+
+// Memory signature result for Java: String[] { status, summary, detail0, ... } (uses syscall)
+JNIEXPORT jobjectArray JNICALL
+Java_anti_rusda_detector_DebugDetectionManager_nativeGetMemorySignatureResult(JNIEnv *env, jclass clazz) {
+    char details[MAX_MEMORY_DETAILS][256];
+    int n = get_memory_signature_details(details, MAX_MEMORY_DETAILS);
+    int status = (n > 0) ? 2 : 0;  // 2 = DANGER, 0 = NORMAL
+    jclass stringClass = env->FindClass("java/lang/String");
+    if (!stringClass) return nullptr;
+    int arrLen = 2 + (n > 0 ? n : 1);
+    jobjectArray arr = env->NewObjectArray(arrLen, stringClass, nullptr);
+    if (!arr) return nullptr;
+    env->SetObjectArrayElement(arr, 0, env->NewStringUTF(status == 2 ? "2" : "0"));
+    env->SetObjectArrayElement(arr, 1, env->NewStringUTF(n > 0 ? "Frida/LSPosed signatures in memory" : "No Frida/LSPosed signatures in memory"));
+    if (n == 0) {
+        env->SetObjectArrayElement(arr, 2, env->NewStringUTF("Memory scan completed - clean"));
+    } else {
+        for (int i = 0; i < n; i++) {
+            env->SetObjectArrayElement(arr, 2 + i, env->NewStringUTF(details[i]));
+        }
+    }
+    return arr;
+}
 
 // Port scan result for Java: String[] { status, summary, detail0, detail1, ... }
 JNIEXPORT jobjectArray JNICALL

@@ -20,7 +20,7 @@ import anti.rusda.ui.MainPagerAdapter;
 public class MainActivity extends BaseActivity {
 
     static {
-        System.loadLibrary("antifrida");
+        System.loadLibrary("antidebug");
         try {
             System.loadLibrary("envdetect");
         } catch (Throwable ignored) { }

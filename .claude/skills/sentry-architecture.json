@@ -118,7 +118,7 @@
 
     "native_layer": {
       "path": "app/src/main/cpp",
-      "library": "libantifrida.so",
+      "library": "libantidebug.so",
       "components": [
         {
           "name": "native-lib",

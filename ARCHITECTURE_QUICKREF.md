@@ -6,18 +6,18 @@ Sentry (anti.rusda)
 ├── UI: 底部 Tab + ViewPager2（3 页）
 │   ├── 概览 (Overview)   - 设备信息 + 安全分数 + 一键扫描
 │   ├── 调试检测 (Debug) - Frida/Xposed/ptrace/端口等
-│   └── 环境检测 (Env)   - Root/Bootloader/模拟器/SELinux 等
+│   └── 环境检测 (Env)   - Root/Bootloader/模拟器等
 │
 ├── Java Layer
 │   ├── MainActivity / OverviewFragment / DebugFragment / EnvironmentFragment
-│   ├── DebugDetectionManager  - 调试类检测（依赖 libantifrida.so）
+│   ├── DebugDetectionManager  - 调试类检测（依赖 libantidebug.so）
 │   ├── EnvDetectionManager   - 环境类检测（依赖 libenvdetect.so）
 │   ├── DetectionManager      - 兼容入口，合并两类检测
 │   └── DetectionResult      - 结果模型（含 score/maxScore）
 │
 ├── Native Layer（两个 so）
-│   ├── libantifrida.so  - 调试检测：thread/port/memory/hook/anti_debug + JNI(native-lib.cpp)
-│   └── libenvdetect.so  - 环境检测桩：native-lib-env.cpp
+│   ├── libantidebug.so  - 调试检测：thread/port/memory/hook/anti_debug + JNI(native-lib.cpp)
+│   └── libenvdetect.so  - 环境检测：native-lib-env.cpp + env_detector + syscall_utils
 │
 └── Resources：2 种语言 (en/zh)，Material Design 3
 ```
@@ -34,6 +34,8 @@ Sentry (anti.rusda)
 | SettingsActivity | `app/src/main/java/anti/rusda/SettingsActivity.java` |
 | DebugDetectionManager | `app/src/main/java/anti/rusda/detector/DebugDetectionManager.java` |
 | EnvDetectionManager | `app/src/main/java/anti/rusda/detector/EnvDetectionManager.java` |
+| PlayIntegrityHelper | `app/src/main/java/anti/rusda/detector/PlayIntegrityHelper.java` |
+| DeviceFingerprintCollector | `app/src/main/java/anti/rusda/detector/DeviceFingerprintCollector.java` |
 | DetectionManager | `app/src/main/java/anti/rusda/detector/DetectionManager.java` |
 | DetectionResult | `app/src/main/java/anti/rusda/detector/DetectionResult.java` |
 | MainPagerAdapter | `app/src/main/java/anti/rusda/ui/MainPagerAdapter.java` |
@@ -76,12 +78,12 @@ Sentry (anti.rusda)
 
 ## 检测项清单（按 Tab 分）
 
-**调试检测 (DebugDetectionManager, libantifrida.so)**  
+**调试检测 (DebugDetectionManager, libantidebug.so)**  
 | # | 检测项 | 检测目标 |
 |---|--------|----------|
 | 1 | Frida 线程 | gmain, gdbus, frida-agent... |
 | 2 | Frida 端口 | 27042, 27043, 27044 (Native syscall) |
-| 3 | 内存签名 | frida, gum-js, gthread |
+| 3 | 内存签名 | frida, gum-js, liblspd.so, libriru.so (Native syscall) |
 | 4 | 命名管道 | /proc/self/net/unix |
 | 5 | Ptrace/IDA 附加 | TracerPid |
 | 6 | 调试器附加 | Debug.isDebuggerConnected() |
@@ -90,13 +92,18 @@ Sentry (anti.rusda)
 **环境检测 (EnvDetectionManager, libenvdetect.so)**  
 | # | 检测项 | 检测目标 |
 |---|--------|----------|
-| 1 | Bootloader | ro.boot.verifiedbootstate / flash.locked |
-| 2 | Root | su, Magisk |
-| 3 | 可疑文件 | /data/local/tmp/frida* 等 |
-| 4 | 模拟器 | QEMU, BlueStacks, build 属性 |
-| 5 | SELinux | enforce/permissive |
-| 6 | 应用可调试 | FLAG_DEBUGGABLE |
-| 7 | 多实例 | dual/clone/parallel 路径 |
+| 1 | Bootloader | ro.boot.* (含 warranty_bit, avb_version) |
+| 2 | Magisk/Root | /data/adb/magisk, modules, Shamiko, zygisk_* 扫描, 包名 |
+| 3 | LSPosed | /data/adb/lspd, zygisk_lsposed, HideMyApplist |
+| 4 | Play Integrity | Google Play Integrity API，需服务端验证 |
+| 5 | 可疑文件 | /data/adb/*, /data/local/tmp/frida* |
+| 6 | 模拟器 | QEMU, BlueStacks, build 属性 |
+| 7 | 内核补丁 | Build.VERSION.SECURITY_PATCH > 12/24 月 |
+| 8 | ADB 调试 | adb_enabled, adb_wifi_enabled, 端口 5555 (Native) |
+| 9 | 多实例 | dual/clone/parallel 路径 |
+| 10 | 容器/虚拟化 | 包名与 cmdline, VirtualApp/太极/平行空间, cgroup (lxc/docker/kubepods) |
+
+**辅助**：`DeviceFingerprintCollector` 采集 fingerprint、elapsedRealtime、/proc/version。
 
 每项有 **分数**：NORMAL=满分，WARNING=半分的，DANGER=0；概览页显示总分百分比（0–100）。
 

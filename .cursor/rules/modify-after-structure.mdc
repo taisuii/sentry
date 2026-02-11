@@ -21,6 +21,8 @@ alwaysApply: true
 - 新增/删除检测项、Activity 或入口
 - 构建配置变更（如 CMake 源列表、新 ABI、Gradle 模块）
 
+**新增检测项时**：除更新结构外，务必参考 `.cursor/rules/detection-development.mdc`，遵循 Native 优先、syscall、评分与误报控制等规范。
+
 **更新方式**：编辑 `.cursor/skills/sentry-project-structure/SKILL.md`，使其中的「目录树」和「关键路径速查」与当前仓库一致；若架构或扩展流程变化，同步更新 `PROJECT_ARCHITECTURE.md` / `ARCHITECTURE_QUICKREF.md`。
 
 这样可保证后续 Agent 与开发者始终基于最新结构执行维护与更新。

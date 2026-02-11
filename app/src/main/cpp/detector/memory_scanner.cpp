@@ -1,7 +1,9 @@
 #include "memory_scanner.h"
+#include "../utils/syscall_utils.h"
 #include <android/log.h>
 #include <fcntl.h>
-#include <string.h>
+#include <cstdio>
+#include <cstring>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -9,7 +11,7 @@
 #define LOG_TAG "AntiFrida"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 
-// Frida memory signatures
+// Frida + LSPosed memory signatures (use syscall to bypass libc hook)
 static const char *FRIDA_SIGNATURES[] = {
     "frida",
     "FRIDA",
@@ -22,38 +24,41 @@ static const char *FRIDA_SIGNATURES[] = {
     "frida-agent",
     "frida-gadget",
     "frida-server",
+    "liblspd.so",
+    "libriru.so",
     nullptr
 };
 
-// Frida Gadget/Gadget library signatures (hex patterns)
-static const unsigned char FRIDA_GADGET_SIG[] = {
-    0x7f, 0x45, 0x4c, 0x46  // ELF header
-};
+#define MAX_MEMORY_FINDINGS 16
+static char s_findings[MAX_MEMORY_FINDINGS][256];
+static int s_finding_count = 0;
 
-bool detect_frida_memory_signatures(void) {
-    int fd = open("/proc/self/maps", O_RDONLY);
+int get_memory_signature_details(char (*details)[256], int max_details) {
+    s_finding_count = 0;
+    int fd = my_open("/proc/self/maps", 0, 0);  /* O_RDONLY */
     if (fd < 0) {
         LOGD("Failed to open /proc/self/maps");
-        return false;
+        return 0;
     }
 
     char buffer[4096];
     ssize_t bytes_read;
-    bool found_frida = false;
     char line[512];
     int line_pos = 0;
 
-    while ((bytes_read = read(fd, buffer, sizeof(buffer))) > 0) {
-        for (ssize_t i = 0; i < bytes_read; i++) {
+    while ((bytes_read = my_read(fd, buffer, sizeof(buffer))) > 0) {
+        for (ssize_t i = 0; i < bytes_read && s_finding_count < max_details; i++) {
             if (buffer[i] == '\n' || line_pos >= sizeof(line) - 1) {
                 line[line_pos] = '\0';
 
-                // Check each signature against the line
-                for (int j = 0; FRIDA_SIGNATURES[j] != nullptr; j++) {
-                    if (strcasestr(line, FRIDA_SIGNATURES[j]) != nullptr) {
+                for (int j = 0; FRIDA_SIGNATURES[j] != nullptr && s_finding_count < max_details; j++) {
+                    if (my_strcasestr(line, FRIDA_SIGNATURES[j]) != nullptr) {
                         LOGD("Frida signature found in maps: %s (matches: %s)",
                              line, FRIDA_SIGNATURES[j]);
-                        found_frida = true;
+                        snprintf(s_findings[s_finding_count], 256,
+                                 "Found '%s' in: %s", FRIDA_SIGNATURES[j], line);
+                        s_finding_count++;
+                        break;
                     }
                 }
                 line_pos = 0;
@@ -63,11 +68,20 @@ bool detect_frida_memory_signatures(void) {
         }
     }
 
-    close(fd);
-    return found_frida;
+    my_close(fd);
+    if (details) {
+        for (int i = 0; i < s_finding_count && i < max_details; i++) {
+            snprintf(details[i], 256, "%s", s_findings[i]);
+        }
+    }
+    return s_finding_count;
+}
+
+bool detect_frida_memory_signatures(void) {
+    char dummy[1][256];
+    return get_memory_signature_details(dummy, 1) > 0;
 }
 
 bool scan_maps_for_frida(void) {
-    // More thorough scan of memory regions
     return detect_frida_memory_signatures();
 }

@@ -1,0 +1,75 @@
+---
+description: 检测功能开发规范：Native 优先、syscall、评分与误报控制
+globs: app/src/main/cpp/**/*,app/src/main/java/anti/rusda/detector/**/*
+alwaysApply: false
+---
+
+# 检测功能开发规范
+
+## 一、检测实现层级：Native 优先
+
+**原则**：新增检测项**优先放在 Native 层**（C++），降低被逆向与篡改的风险。
+
+| 层级 | 适用场景 | 说明 |
+|------|----------|------|
+| **Native 层** | 文件/端口/内存/进程/系统调用等敏感操作 | ✅ 推荐：可配合 syscall、符号隐藏、混淆，提高逆向难度 |
+| **Java 层** | 仅依赖 Android API 的简单检测（如 Build、系统属性） | ⚠️ 可接受：易被 hook，适合非核心或辅助判断 |
+
+- 新增检测时先评估：能否在 `cpp/detector/` 或 `cpp/detector/env_detector.cpp` 中实现？
+- 调试检测 → `DebugDetectionManager` + `native-lib.cpp`；环境检测 → `EnvDetectionManager` + `native-lib-env.cpp`
+- 必须同步修改：`CMakeLists.txt` 源列表、对应 JNI 桥接
+
+---
+
+## 二、系统调用：优先 syscall，避免 libc 被 hook
+
+**原则**：敏感 I/O、网络、文件访问**优先使用 syscall**，绕过 libc 函数，减少被 Frida/Xposed 等 hook 替换的风险。
+
+- **已有工具**：`app/src/main/cpp/utils/syscall_utils.cpp` 提供 `my_open`、`my_read`、`my_write`、`my_close`、`my_access`、`my_socket`、`my_connect` 及自定义字符串函数（`my_strcmp`、`my_strstr` 等）
+- **用法**：在 Native 检测器中 `#include "utils/syscall_utils.h"`，用 `my_open()` 替代 `open()`，用 `my_read()` 替代 `read()` 等
+- **新增 syscall**：若需其他调用，参考 `syscall_utils.cpp` 的 `do_syscall` 与架构宏，实现对应封装
+- **字符串/内存**：使用 `my_strstr`、`my_strcmp` 等，避免直接调用 libc 的 `strstr`、`strcmp`，降低 inline hook 风险
+
+---
+
+## 三、评分设计与更新
+
+**原则**：新增或修改检测项时，须同步调整** maxScore**，使总分和单项权重合理。
+
+- **分数规则**：`DetectionResult` 中 `getEarnedScore()`：`NORMAL`=满分，`WARNING`=一半，`DANGER`=0
+- **默认**：`DEFAULT_MAX_SCORE = 10`；若需调整权重，使用 `DetectionResult(title, desc, status, maxScore)` 或带 details 的构造
+- **注意事项**：
+  - 核心安全项（如 Frida、Root、ptrace）可适当提高 maxScore
+  - 辅助项（如多开提示）可降低 maxScore，避免过度影响总分
+  - 新增检测后，确保概览页总分 `sum(earned)/sum(max)` 能反映真实安全水平
+
+---
+
+## 四、误报控制
+
+**原则**：检测逻辑须考虑**正常设备、厂商定制、特殊环境**，避免将正常手机判为异常。
+
+- **白名单/排除**：特定厂商、机型、模拟器/真机模糊区间的已知正常值，应做排除或降级处理
+- **多因子联合**：单指标不足以断定异常时，结合多项证据（例如：模拟器需硬件属性 + 文件 + 端口等综合判断）
+- **状态分级**：不确定时用 `STATUS_WARNING` 而非 `STATUS_DANGER`，减少对用户体验的冲击
+- **测试覆盖**：在多种真机（不同品牌/ROM）、模拟器、Root 环境上验证，记录易误报场景
+
+---
+
+## 五、开发检查清单
+
+新增或修改检测前，确认：
+
+1. [ ] 是否能放在 Native 层？若在 Java 层，是否确有充分理由？
+2. [ ] 是否使用 syscall / `syscall_utils` 提供的 `my_*` 而非直接调用 libc？
+3. [ ] 是否设定了合理的 maxScore，并验证总分计算正确？
+4. [ ] 是否评估了误报：正常手机、定制 ROM、模拟器边缘情况？
+5. [ ] 是否在多种环境下做过验证？
+
+---
+
+## 六、全局视角与长期考虑
+
+- **可扩展性**：新检测尽量复用现有 `thread_detector`、`port_scanner`、`env_detector` 等模块结构，避免重复造轮子
+- **兼容性**：新增 syscall 或 Native 调用时，考虑 ABI、Android 版本差异（如 16KB 页面对齐、API 级别）
+- **有疑问即询问**：对威胁模型、误报边界、权重分配不确定时，先讨论再实现，避免返工

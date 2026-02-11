@@ -5,7 +5,7 @@ description: Documents the Sentry Android security detection app structure (Java
 
 # Sentry 项目结构
 
-Android 安全检测应用，Java + Native (C++) 双引擎，包名 `anti.rusda`。**两个 Native 库**：`libantifrida.so`（调试检测）、`libenvdetect.so`（环境检测）。主界面为 **3 个 Tab**：概览（设备信息+分数）、调试检测、环境检测。
+Android 安全检测应用，Java + Native (C++) 双引擎，包名 `anti.rusda`。**两个 Native 库**：`libantidebug.so`（调试检测）、`libenvdetect.so`（环境检测）。主界面为 **3 个 Tab**：概览（设备信息+分数）、调试检测、环境检测。
 
 ## 目录树
 
@@ -17,15 +17,16 @@ sentry/
 │   └── src/main/
 │       ├── AndroidManifest.xml   # SentryApp, MainActivity, SettingsActivity
 │       ├── cpp/
-│       │   ├── CMakeLists.txt    # 构建 libantifrida + libenvdetect，arm64-v8a，16KB 对齐
+│       │   ├── CMakeLists.txt    # 构建 libantidebug + libenvdetect，arm64-v8a，16KB 对齐
 │       │   ├── native-lib.cpp    # JNI 桥接（调试检测 → DebugDetectionManager）
 │       │   ├── native-lib-env.cpp # JNI 桥接（环境检测库桩）
-│       │   ├── detector/         # 调试检测器
+│       │   ├── detector/         # 调试检测器 + 环境检测器
 │       │   │   ├── thread_detector.cpp/h
 │       │   │   ├── port_scanner.cpp/h
 │       │   │   ├── memory_scanner.cpp/h
 │       │   │   ├── hook_detector.cpp/h
-│       │   │   └── anti_debug.cpp/h
+│       │   │   ├── anti_debug.cpp/h
+│       │   │   └── env_detector.cpp/h
 │       │   └── utils/
 │       │       └── syscall_utils.cpp/h
 │       ├── java/anti/rusda/
@@ -38,10 +39,13 @@ sentry/
 │       │   ├── SentryApp.java
 │       │   ├── LocaleHelper.java
 │       │   ├── detector/
-│       │   │   ├── DetectionManager.java     # 兼容入口，委托 Debug + Env
-│       │   │   ├── DebugDetectionManager.java # 调试检测（Frida/Xposed/ptrace 等）
-│       │   │   ├── EnvDetectionManager.java   # 环境检测（Root/Bootloader/模拟器等）
-│       │   │   └── DetectionResult.java       # 结果模型 (title, status, details, score)
+│       │   │   ├── DetectionManager.java       # 兼容入口，委托 Debug + Env
+│       │   │   ├── DebugDetectionManager.java # 调试检测（Frida/Xposed/LSPosed/ptrace 等）
+│       │   │   ├── EnvDetectionManager.java   # 环境检测（Magisk/Bootloader/Play Integrity/模拟器等）
+│       │   │   ├── DetectionResult.java       # 结果模型 (title, status, details, score)
+│       │   │   ├── PlayIntegrityHelper.java   # Play Integrity API 客户端
+│       │   │   ├── PlayIntegrityVerifier.java  # 服务端验证接口
+│       │   │   └── DeviceFingerprintCollector.java # 设备指纹采集
 │       │   └── ui/
 │       │       ├── MainPagerAdapter.java
 │       │       └── adapter/DetectionAdapter.java
@@ -82,8 +86,8 @@ sentry/
 ## 技术要点
 
 - **命名空间/包名**: `anti.rusda`；**applicationId**: `anti.rusda`
-- **Native 库**: `libantifrida.so`（调试检测）、`libenvdetect.so`（环境检测）
-- **JNI 约定**: 调试 → `Java_anti_rusda_detector_DebugDetectionManager_nativeGetFridaPortScanResult` 等；环境 → `Java_anti_rusda_detector_EnvDetectionManager_nativeGetEnvVersion`
+- **Native 库**: `libantidebug.so`（调试检测）、`libenvdetect.so`（环境检测）
+- **JNI 约定**: 调试 → `nativeGetFridaPortScanResult`、`nativeGetMemorySignatureResult` 等；环境 → `nativeDetectMagisk`、`nativeDetectBootloader`、`nativeDetectLsposed`、`nativeDetectSuspiciousFiles`、`nativeDetectEmulator`、`nativeCheckPort`、`nativeCheckCgroup`、`nativeGetEnvVersion`；指纹 → `nativeGetProcVersion`
 - **检测状态**: `STATUS_NORMAL=0`(绿), `STATUS_WARNING=1`(橙), `STATUS_DANGER=2`(红)；每项有 **分数**（getEarnedScore/getMaxScore），概览页显示总分百分比
 - **ABI**: 仅 `arm64-v8a`；C++17；Android 15+ 使用 16KB 页面对齐
 - **导航**: 底部 TabLayout + ViewPager2 左右滑动，三页：概览、调试检测、环境检测
@@ -91,14 +95,15 @@ sentry/
 ## 扩展时需同步修改的位置
 
 - **新增调试检测项**: `DebugDetectionManager.java` → 可选 `cpp/detector/` → `native-lib.cpp` JNI
-- **新增环境检测项**: `EnvDetectionManager.java`（可选 `native-lib-env.cpp`）
+- **新增环境检测项**: `EnvDetectionManager.java` → `cpp/detector/env_detector.cpp` → `native-lib-env.cpp` JNI
+- **检测开发规范**：新增检测时参见 `.cursor/rules/detection-development.mdc`（Native 优先、syscall、评分与误报控制）
 - **新增 Activity/Fragment**: `AndroidManifest.xml`、对应 Java、布局 `res/layout/`
 - **新增资源/语言**: `res/values*/`、`values-<locale>/strings.xml`
 - **变更 Native 源**: `app/src/main/cpp/CMakeLists.txt` 的 `add_library` 列表
 
 ## 详细文档
 
-- 架构图、12 项检测说明、资源与构建细节：见项目根目录 [PROJECT_ARCHITECTURE.md](../../../PROJECT_ARCHITECTURE.md)
+- 架构图、21 项检测说明、资源与构建细节：见项目根目录 [PROJECT_ARCHITECTURE.md](../../../PROJECT_ARCHITECTURE.md)
 - 路径与命令速查：见 [ARCHITECTURE_QUICKREF.md](../../../ARCHITECTURE_QUICKREF.md)
 
 ## 何时更新本 Skill

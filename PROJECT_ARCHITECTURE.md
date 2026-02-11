@@ -33,21 +33,21 @@
 │                     DETECTION ENGINE                         │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │              DetectionManager                       │   │
-│  │  (Java层 - 12种检测方法的统一入口)                   │   │
+│  │  (Java层 - 21项检测的统一入口)                        │   │
 │  └─────────────────────────────────────────────────────┘   │
 │           │                                                  │
 │  ┌────────▼────────┐  ┌───────────────┐  ┌───────────────┐ │
 │  │ DetectionResult │  │  Thread Check │  │   Port Scan   │ │
 │  │   (结果模型)     │  │   Root Check  │  │  Memory Scan  │ │
 │  └─────────────────┘  │   Debug Check │  │  Emulator Chk │ │
-│                       │   File Check  │  │   SELinux Chk │ │
+│                       │   File Check  │  │               │ │
 │                       └───────────────┘  └───────────────┘ │
 └─────────────────────────────────────────────────────────────┘
                               │ JNI
 ┌─────────────────────────────────────────────────────────────┐
 │                    NATIVE LAYER (C++)                        │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │  libantifrida.so (ARM64-v8a, 16KB对齐)              │   │
+│  │  libantidebug.so (ARM64-v8a, 16KB对齐)              │   │
 │  └─────────────────────────────────────────────────────┘   │
 │           │                                                  │
 │  ┌────────▼────────┐  ┌───────────────┐  ┌───────────────┐ │
@@ -69,7 +69,7 @@
 **路径**: `app/src/main/java/anti/rusda/MainActivity.java`
 
 **职责**:
-- 加载原生库 `libantifrida.so`
+- 加载原生库 `libantidebug.so`
 - 初始化检测引擎 `DetectionManager`
 - 管理扫描状态和结果展示
 - 处理筛选 Chip 交互
@@ -115,22 +115,33 @@ public native String nativeGetDetectionDetails();
 #### 2.1 DetectionManager
 **路径**: `app/src/main/java/anti/rusda/detector/DetectionManager.java`
 
-**12 种检测方法**:
+**21 项检测**（Debug 7 项 + Env 10 项）:
 
-| # | 检测项 | 方法 | 状态 | 说明 |
-|---|--------|------|------|------|
-| 1 | Frida 线程检测 | `detectFridaThreads()` | DANGER | 扫描 `/proc/self/task` 目录，检测 gmain/gdbus/frida-agent 等线程名 |
-| 2 | Frida 端口检测 | `detectFridaPorts()` | DANGER | 扫描 127.0.0.1:27042/27043/27044 |
-| 3 | 内存签名检测 | `detectMemorySignatures()` | DANGER | 分析 `/proc/self/maps`，查找 frida/gum-js/gthread 等签名 |
-| 4 | 命名管道检测 | `detectNamedPipes()` | DANGER | 检查 `/proc/self/net/unix` 中的 Frida 相关管道 |
-| 5 | 调试模式检测 | `detectDebugMode()` | WARNING | 检查 `Debug.isDebuggerConnected()` 和 `FLAG_DEBUGGABLE` |
-| 6 | Root 检测 | `detectRoot()` | WARNING | 检查 su 二进制文件、Magisk 目录 |
-| 7 | 可疑文件检测 | `detectSuspiciousFiles()` | DANGER | 检查 `/data/local/tmp/frida*` 等路径 |
-| 8 | Ptrace 状态检测 | `detectPtraceStatus()` | DANGER | 检查 `/proc/self/status` 中的 TracerPid |
-| 9 | 模拟器检测 | `detectEmulator()` | WARNING | 检查硬件属性、QEMU 文件、BlueStacks/Nox 指示器 |
-| 10 | SELinux 状态 | `detectSELinuxStatus()` | WARNING | 检查 `/sys/fs/selinux/enforce` 是否为宽容模式 |
-| 11 | 库完整性检查 | `checkLibraryIntegrity()` | DANGER | 检查 Xposed 框架是否存在 |
-| 12 | 多实例检测 | `checkProcessStatus()` | WARNING | 检查包名和数据目录是否包含 dual/clone/parallel 等关键词 |
+**调试检测 (DebugDetectionManager)**:
+| # | 检测项 | 方法 | 说明 |
+|---|--------|------|------|
+| 1 | Frida 线程 | `detectFridaThreads()` | 扫描 `/proc/self/task`，检测 gmain/gdbus/frida-agent 等 |
+| 2 | Frida 端口 | `detectFridaPorts()` | Native 扫描 27042/27043/27044 |
+| 3 | 内存签名 | `detectMemorySignatures()` | frida/gum-js/liblspd.so/libriru.so 等 |
+| 4 | 命名管道 | `detectNamedPipes()` | /proc/self/net/unix |
+| 5 | Ptrace/IDA | `detectPtraceStatus()` | TracerPid |
+| 6 | 调试器附加 | `detectDebuggerAttached()` | Debug.isDebuggerConnected() |
+| 7 | Xposed/Hook | `checkLibraryIntegrity()` | XposedBridge |
+
+**环境检测 (EnvDetectionManager)**:
+| # | 检测项 | 方法 | 说明 |
+|---|--------|------|------|
+| 8 | Bootloader | `detectBootloader()` | Native 读取 ro.boot.* 属性 |
+| 9 | Magisk/Root | `detectRoot()` | Magisk 专项 + 包名检测 |
+| 10 | LSPosed | `detectLsposed()` | /data/adb/lspd、HideMyApplist |
+| 11 | Play Integrity | `detectPlayIntegrity()` | Google Play Integrity API |
+| 12 | 可疑文件 | `detectSuspiciousFiles()` | /data/adb/*, frida-server* |
+| 13 | 模拟器 | `detectEmulator()` | QEMU、BlueStacks、build 属性 |
+| 14 | 内核补丁 | `detectKernelPatch()` | SECURITY_PATCH > 12/24 月 |
+| 15 | ADB 调试 | `detectAdbEnabled()` | Settings.Global adb_enabled |
+| 16 | 多实例 | `checkProcessStatus()` | dual/clone/parallel 路径 |
+
+**辅助**：`DeviceFingerprintCollector` 采集 fingerprint、elapsedRealtime、/proc/version
 
 **状态定义**:
 ```java
@@ -168,7 +179,8 @@ app/src/main/cpp/
 │   ├── port_scanner.cpp/h      # 端口扫描
 │   ├── memory_scanner.cpp/h    # 内存签名扫描
 │   ├── hook_detector.cpp/h     # Hook 检测
-│   └── anti_debug.cpp/h        # 反调试
+│   ├── anti_debug.cpp/h        # 反调试
+│   └── env_detector.cpp/h      # 环境检测（Magisk/Bootloader/LSPosed，含 syscall）
 └── utils/
     ├── syscall_utils.cpp/h     # 系统调用工具
     └── custom_string.h         # 自定义字符串处理
@@ -369,7 +381,7 @@ dependencies {
 
 ```cmake
 cmake_minimum_required(VERSION 3.22.1)
-project("antifrida")
+project("antidebug")
 
 add_library(${CMAKE_PROJECT_NAME} SHARED
     native-lib.cpp
@@ -499,11 +511,11 @@ Java_anti_rusda_MainActivity_nativeDetectFridaPort(JNIEnv* env, jobject thiz) {
 
 | 类型 | 数量 |
 |------|------|
-| Java 源文件 | 7 个 |
-| C++ 源文件 | 7 个 |
+| Java 源文件 | 10+ 个 |
+| C++ 源文件 | 8+ 个 |
 | 布局文件 | 3 个 |
 | 字符串资源 | 2 种语言 |
-| 检测项 | 12 项 |
+| 检测项 | 16 项 (Debug 7 + Env 9) |
 | 矢量图标 | 13 个 |
 
 ---

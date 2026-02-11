@@ -14,7 +14,7 @@ import java.util.List;
 
 /**
  * 调试相关检测：Frida、Xposed、IDA/ptrace 附加、端口等。
- * 依赖 libantifrida.so（端口扫描在 Native 层）。
+ * 依赖 libantidebug.so（端口扫描在 Native 层）。
  */
 public class DebugDetectionManager {
 
@@ -23,16 +23,15 @@ public class DebugDetectionManager {
             "frida", "gum-js-loop", "gthread", "gpool"
     };
 
-    private static final String[] FRIDA_MEMORY_SIGNATURES = {
-            "frida", "FRIDA", "gum-js", "gthread", "gobject"
-    };
 
     /** 端口扫描在 Native 层（syscall），结果由此方法返回 */
     private static native String[] nativeGetFridaPortScanResult();
+    /** 内存签名扫描在 Native 层（syscall），防 Hook */
+    private static native String[] nativeGetMemorySignatureResult();
 
     public static void ensureNativeLoaded() {
         try {
-            System.loadLibrary("antifrida");
+            System.loadLibrary("antidebug");
         } catch (Throwable ignored) { }
     }
 
@@ -101,27 +100,20 @@ public class DebugDetectionManager {
     }
 
     private DetectionResult detectMemorySignatures() {
-        List<String> findings = new ArrayList<>();
+        String[] raw = nativeGetMemorySignatureResult();
+        if (raw == null || raw.length < 2) {
+            return new DetectionResult("Memory Signatures", "Scan failed", DetectionResult.STATUS_WARNING);
+        }
         int status = DetectionResult.STATUS_NORMAL;
         try {
-            String mapsContent = readFileContent("/proc/self/maps");
-            for (String line : mapsContent.split("\\n")) {
-                for (String signature : FRIDA_MEMORY_SIGNATURES) {
-                    if (line.toLowerCase().contains(signature)) {
-                        findings.add("Found '" + signature + "' in: " + line.trim());
-                        status = DetectionResult.STATUS_DANGER;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            findings.add("Error reading memory maps: " + e.getMessage());
-        }
-        DetectionResult result = new DetectionResult(
-                "Memory Signatures",
-                findings.isEmpty() ? "No Frida signatures in memory" : findings.size() + " signature(s) found",
-                status
-        );
-        result.setDetails(findings.isEmpty() ? Collections.singletonList("Memory scan completed - clean") : findings);
+            status = Integer.parseInt(raw[0]);
+        } catch (NumberFormatException ignored) { }
+        String summary = raw[1];
+        List<String> details = raw.length > 2
+                ? Arrays.asList(Arrays.copyOfRange(raw, 2, raw.length))
+                : Collections.emptyList();
+        DetectionResult result = new DetectionResult("Memory Signatures", summary, status);
+        result.setDetails(details);
         return result;
     }
 
