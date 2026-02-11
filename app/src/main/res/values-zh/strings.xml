@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App -->
+    <string name="app_name">Sentry</string>
+
+    <!-- Navigation -->
+    <string name="title_scan">检测</string>
+    <string name="title_settings">设置</string>
+
+    <!-- Status -->
+    <string name="status_healthy">正常</string>
+    <string name="status_risk">发现风险</string>
+    <string name="status_unknown">未知</string>
+    <string name="status_checking">检测中</string>
+    <string name="status_normal">正常</string>
+    <string name="status_warning">警告</string>
+    <string name="status_danger">危险</string>
+
+    <!-- Environment -->
+    <string name="environment_healthy">环境状态良好</string>
+    <string name="environment_risk">环境存在风险</string>
+    <string name="environment_unknown">环境状态未知</string>
+    <string name="environment_checking">正在检测环境</string>
+
+    <!-- Scan Actions -->
+    <string name="run_scan">开始检测</string>
+    <string name="rescan">重新检测</string>
+    <string name="scanning">检测中</string>
+    <string name="scanning_progress">检测进度 %1$d%%</string>
+
+    <!-- Empty State -->
+    <string name="empty_state_title">尚未检测</string>
+    <string name="empty_state_description">点击开始检测以检查您的环境</string>
+    <string name="tap_scan_to_start">点击扫描按钮开始检测</string>
+
+    <!-- Last Checked -->
+    <string name="last_checked">上次检测：%1$s</string>
+    <string name="never">从未</string>
+
+    <!-- Result Summary -->
+    <string name="result_summary">%1$d 项失败 · %2$d 项警告 · %3$d 项通过</string>
+    <string name="result_summary_simple">%1$d 项通过，%2$d 项警告，%3$d 项失败</string>
+
+    <!-- Detection Status -->
+    <string name="pass">通过</string>
+    <string name="fail">失败</string>
+    <string name="warn">警告</string>
+    <string name="unknown">未知</string>
+
+    <!-- Checks Section -->
+    <string name="checks">检测项目</string>
+    <string name="check_all">全部</string>
+    <string name="check_failed">失败</string>
+    <string name="check_warning">警告</string>
+    <string name="check_passed">通过</string>
+
+    <!-- Detection Items -->
+    <string name="detect_frida_threads">Frida 注入检测</string>
+    <string name="detect_frida_ports">Frida 端口检测</string>
+    <string name="detect_frida_memory">内存签名检测</string>
+    <string name="detect_debug_mode">调试模式检测</string>
+    <string name="detect_hooks">Hook 检测</string>
+    <string name="detect_root">Root 检测</string>
+    <string name="detect_emulator">模拟器检测</string>
+    <string name="detect_integrity">应用完整性</string>
+
+    <!-- Detection Details -->
+    <string name="detail_frida_threads">检查进程中是否存在 Frida 相关线程</string>
+    <string name="detail_frida_ports">扫描 Frida 默认端口（27042、27043、27044）</string>
+    <string name="detail_frida_memory">扫描内存中的 Frida 代理签名</string>
+    <string name="detail_debug_mode">检查是否有调试器附加</string>
+    <string name="detail_hooks">检测函数 Hook 和行内补丁</string>
+    <string name="detail_root">检查 Root 迹象</string>
+    <string name="detail_emulator">检测模拟器环境</string>
+    <string name="detail_integrity">验证应用签名和文件</string>
+
+    <!-- Actions -->
+    <string name="export_report">导出报告</string>
+    <string name="view_logs">查看日志</string>
+    <string name="copy_details">复制详情</string>
+    <string name="report">报告</string>
+
+    <!-- Settings Categories -->
+    <string name="settings_appearance">外观</string>
+    <string name="settings_language">语言</string>
+    <string name="settings_scan">检测</string>
+    <string name="settings_privacy">隐私与日志</string>
+    <string name="settings_about">关于</string>
+
+    <!-- Appearance Settings -->
+    <string name="theme">主题</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
+    <string name="dynamic_color">动态取色</string>
+    <string name="dynamic_color_summary">使用系统强调色（Android 12+）</string>
+
+    <!-- Language Settings -->
+    <string name="app_language">应用语言</string>
+    <string name="language_system">跟随系统</string>
+    <string name="language_english">English</string>
+    <string name="language_chinese">简体中文</string>
+
+    <!-- Scan Settings -->
+    <string name="auto_scan">启动时自动检测</string>
+    <string name="auto_scan_summary">应用启动时自动开始检测</string>
+    <string name="advanced_checks">高级检测</string>
+    <string name="advanced_checks_summary">包含更彻底但更耗时的检测项</string>
+
+    <!-- Privacy Settings -->
+    <string name="collect_diagnostics">收集诊断信息</string>
+    <string name="collect_diagnostics_summary">通过分享匿名诊断信息帮助改进应用</string>
+    <string name="clear_logs">清除本地日志</string>
+    <string name="clear_logs_confirm">确定要清除所有日志吗？</string>
+
+    <!-- About -->
+    <string name="version">版本</string>
+    <string name="open_source_licenses">开源许可</string>
+    <string name="what_is_frida">什么是 Frida？</string>
+
+    <!-- Dialogs -->
+    <string name="confirm">确认</string>
+    <string name="cancel">取消</string>
+    <string name="ok">确定</string>
+    <string name="close">关闭</string>
+
+    <!-- Result Messages -->
+    <string name="no_modifications">未检测到修改</string>
+    <string name="modifications_detected">检测到环境被修改</string>
+    <string name="scan_complete">检测完成</string>
+    <string name="scan_failed">检测失败</string>
+</resources>

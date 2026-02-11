@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App -->
+    <string name="app_name">Sentry</string>
+
+    <!-- Navigation -->
+    <string name="title_scan">Scan</string>
+    <string name="title_settings">Settings</string>
+
+    <!-- Status -->
+    <string name="status_healthy">Healthy</string>
+    <string name="status_risk">Risk Detected</string>
+    <string name="status_unknown">Unknown</string>
+    <string name="status_checking">Checking</string>
+    <string name="status_normal">Normal</string>
+    <string name="status_warning">Warning</string>
+    <string name="status_danger">Danger</string>
+
+    <!-- Environment -->
+    <string name="environment_healthy">Environment is healthy</string>
+    <string name="environment_risk">Environment is at risk</string>
+    <string name="environment_unknown">Environment status unknown</string>
+    <string name="environment_checking">Scanning environment</string>
+
+    <!-- Scan Actions -->
+    <string name="run_scan">Run Scan</string>
+    <string name="rescan">Rescan</string>
+    <string name="scanning">Scanning</string>
+    <string name="scanning_progress">Scanning %1$d%%</string>
+
+    <!-- Empty State -->
+    <string name="empty_state_title">No scan yet</string>
+    <string name="empty_state_description">Tap Run Scan to check your environment</string>
+    <string name="tap_scan_to_start">Tap scan to start detection</string>
+
+    <!-- Last Checked -->
+    <string name="last_checked">Last checked: %1$s</string>
+    <string name="never">Never</string>
+
+    <!-- Result Summary -->
+    <string name="result_summary">%1$d failed · %2$d warnings · %3$d passed</string>
+    <string name="result_summary_simple">%1$d passed, %2$d warnings, %3$d failed</string>
+
+    <!-- Detection Status -->
+    <string name="pass">PASS</string>
+    <string name="fail">FAIL</string>
+    <string name="warn">WARN</string>
+    <string name="unknown">UNKNOWN</string>
+
+    <!-- Checks Section -->
+    <string name="checks">Checks</string>
+    <string name="check_all">All</string>
+    <string name="check_failed">Failed</string>
+    <string name="check_warning">Warning</string>
+    <string name="check_passed">Passed</string>
+
+    <!-- Detection Items -->
+    <string name="detect_frida_threads">Frida Injection</string>
+    <string name="detect_frida_ports">Frida Ports</string>
+    <string name="detect_frida_memory">Memory Signatures</string>
+    <string name="detect_debug_mode">Debug Mode</string>
+    <string name="detect_hooks">Hook Detection</string>
+    <string name="detect_root">Root Detection</string>
+    <string name="detect_emulator">Emulator Detection</string>
+    <string name="detect_integrity">App Integrity</string>
+
+    <!-- Detection Details -->
+    <string name="detail_frida_threads">Checking for Frida-related threads in process</string>
+    <string name="detail_frida_ports">Scanning for Frida default ports (27042, 27043, 27044)</string>
+    <string name="detail_frida_memory">Scanning memory for Frida agent signatures</string>
+    <string name="detail_debug_mode">Checking if debugger is attached</string>
+    <string name="detail_hooks">Detecting function hooks and inline patches</string>
+    <string name="detail_root">Checking for root indicators</string>
+    <string name="detail_emulator">Detecting emulator environment</string>
+    <string name="detail_integrity">Verifying app signature and files</string>
+
+    <!-- Actions -->
+    <string name="export_report">Export Report</string>
+    <string name="view_logs">View Logs</string>
+    <string name="copy_details">Copy Details</string>
+    <string name="report">Report</string>
+
+    <!-- Settings Categories -->
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_scan">Scan</string>
+    <string name="settings_privacy">Privacy \&amp; Logs</string>
+    <string name="settings_about">About</string>
+
+    <!-- Appearance Settings -->
+    <string name="theme">Theme</string>
+    <string name="theme_system">System default</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="dynamic_color">Dynamic color</string>
+    <string name="dynamic_color_summary">Use system accent colors (Android 12+)</string>
+
+    <!-- Language Settings -->
+    <string name="app_language">App language</string>
+    <string name="language_system">Follow system</string>
+    <string name="language_english">English</string>
+    <string name="language_chinese">简体中文</string>
+
+    <!-- Scan Settings -->
+    <string name="auto_scan">Auto scan on launch</string>
+    <string name="auto_scan_summary">Automatically scan when app starts</string>
+    <string name="advanced_checks">Advanced checks</string>
+    <string name="advanced_checks_summary">Include more thorough but slower checks</string>
+
+    <!-- Privacy Settings -->
+    <string name="collect_diagnostics">Collect diagnostics</string>
+    <string name="collect_diagnostics_summary">Help improve by sharing anonymous diagnostics</string>
+    <string name="clear_logs">Clear local logs</string>
+    <string name="clear_logs_confirm">Are you sure you want to clear all logs?</string>
+
+    <!-- About -->
+    <string name="version">Version</string>
+    <string name="open_source_licenses">Open source licenses</string>
+    <string name="what_is_frida">What is Frida?</string>
+
+    <!-- Dialogs -->
+    <string name="confirm">Confirm</string>
+    <string name="cancel">Cancel</string>
+    <string name="ok">OK</string>
+    <string name="close">Close</string>
+
+    <!-- Result Messages -->
+    <string name="no_modifications">No modifications detected</string>
+    <string name="modifications_detected">Modifications to the environment are detected</string>
+    <string name="scan_complete">Scan complete</string>
+    <string name="scan_failed">Scan failed</string>
+</resources>

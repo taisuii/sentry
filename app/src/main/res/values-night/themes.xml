@@ -1,0 +1,48 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Sentry Dark Theme -->
+    <style name="Theme.Sentry" parent="Theme.Material3.Dark.NoActionBar">
+        <!-- Primary brand color -->
+        <item name="colorPrimary">@color/sentry_primary_dark</item>
+        <item name="colorOnPrimary">@color/sentry_on_primary_dark</item>
+        <item name="colorPrimaryContainer">@color/sentry_primary_container_dark</item>
+        <item name="colorOnPrimaryContainer">@color/sentry_on_primary_container_dark</item>
+
+        <!-- Secondary brand color -->
+        <item name="colorSecondary">@color/sentry_secondary_dark</item>
+        <item name="colorOnSecondary">@color/sentry_on_secondary_dark</item>
+        <item name="colorSecondaryContainer">@color/sentry_secondary_container_dark</item>
+        <item name="colorOnSecondaryContainer">@color/sentry_on_secondary_container_dark</item>
+
+        <!-- Tertiary color -->
+        <item name="colorTertiary">@color/sentry_tertiary_dark</item>
+        <item name="colorOnTertiary">@color/sentry_on_tertiary_dark</item>
+        <item name="colorTertiaryContainer">@color/sentry_tertiary_container_dark</item>
+        <item name="colorOnTertiaryContainer">@color/sentry_on_tertiary_container_dark</item>
+
+        <!-- Surface colors -->
+        <item name="colorSurface">@color/sentry_surface_dark</item>
+        <item name="colorOnSurface">@color/sentry_on_surface_dark</item>
+        <item name="colorSurfaceVariant">@color/sentry_surface_variant_dark</item>
+        <item name="colorOnSurfaceVariant">@color/sentry_on_surface_variant_dark</item>
+
+        <!-- Background -->
+        <item name="android:colorBackground">@color/sentry_background_dark</item>
+        <item name="colorOnBackground">@color/sentry_on_background_dark</item>
+
+        <!-- Error colors -->
+        <item name="colorError">@color/sentry_error_dark</item>
+        <item name="colorOnError">@color/sentry_on_error_dark</item>
+        <item name="colorErrorContainer">@color/sentry_error_container_dark</item>
+        <item name="colorOnErrorContainer">@color/sentry_on_error_container_dark</item>
+
+        <!-- Outline -->
+        <item name="colorOutline">@color/sentry_outline_dark</item>
+        <item name="colorOutlineVariant">@color/sentry_outline_variant_dark</item>
+
+        <!-- Status bar -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

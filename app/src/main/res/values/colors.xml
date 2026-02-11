@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ============================================ -->
+    <!-- Sentry Color Scheme - Material Design 3      -->
+    <!-- ============================================ -->
+
+    <!-- Primary - Indigo (Professional Security Feel) -->
+    <color name="sentry_primary">#FF3F51B5</color>
+    <color name="sentry_on_primary">#FFFFFFFF</color>
+    <color name="sentry_primary_container">#FFE8EAF6</color>
+    <color name="sentry_on_primary_container">#FF1A237E</color>
+
+    <!-- Secondary - Blue Grey -->
+    <color name="sentry_secondary">#FF546E7A</color>
+    <color name="sentry_on_secondary">#FFFFFFFF</color>
+    <color name="sentry_secondary_container">#FFECEFF1</color>
+    <color name="sentry_on_secondary_container">#FF263238</color>
+
+    <!-- Tertiary - Teal (Accent) -->
+    <color name="sentry_tertiary">#FF00897B</color>
+    <color name="sentry_on_tertiary">#FFFFFFFF</color>
+    <color name="sentry_tertiary_container">#FFE0F2F1</color>
+    <color name="sentry_on_tertiary_container">#FF004D40</color>
+
+    <!-- Surface Colors -->
+    <color name="sentry_surface">#FFFEFEFE</color>
+    <color name="sentry_on_surface">#FF1C1B1F</color>
+    <color name="sentry_surface_variant">#FFEEF2F5</color>
+    <color name="sentry_on_surface_variant">#FF49454F</color>
+
+    <!-- Background -->
+    <color name="sentry_background">#FFF5F7FA</color>
+    <color name="sentry_on_background">#FF1C1B1F</color>
+
+    <!-- Error Colors -->
+    <color name="sentry_error">#FFE53935</color>
+    <color name="sentry_on_error">#FFFFFFFF</color>
+    <color name="sentry_error_container">#FFFFEBEE</color>
+    <color name="sentry_on_error_container">#FFB71C1C</color>
+
+    <!-- Outline -->
+    <color name="sentry_outline">#FF79747E</color>
+    <color name="sentry_outline_variant">#FFCAC4D0</color>
+
+    <!-- ============================================ -->
+    <!-- Dark Theme Colors                            -->
+    <!-- ============================================ -->
+
+    <!-- Primary Dark -->
+    <color name="sentry_primary_dark">#FF7986CB</color>
+    <color name="sentry_on_primary_dark">#FF1A237E</color>
+    <color name="sentry_primary_container_dark">#FF3949AB</color>
+    <color name="sentry_on_primary_container_dark">#FFE8EAF6</color>
+
+    <!-- Secondary Dark -->
+    <color name="sentry_secondary_dark">#FF78909C</color>
+    <color name="sentry_on_secondary_dark">#FF263238</color>
+    <color name="sentry_secondary_container_dark">#FF455A64</color>
+    <color name="sentry_on_secondary_container_dark">#FFECEFF1</color>
+
+    <!-- Tertiary Dark -->
+    <color name="sentry_tertiary_dark">#FF4DB6AC</color>
+    <color name="sentry_on_tertiary_dark">#FF004D40</color>
+    <color name="sentry_tertiary_container_dark">#FF00695C</color>
+    <color name="sentry_on_tertiary_container_dark">#FFE0F2F1</color>
+
+    <!-- Surface Dark -->
+    <color name="sentry_surface_dark">#FF1E1E24</color>
+    <color name="sentry_on_surface_dark">#FFE6E1E5</color>
+    <color name="sentry_surface_variant_dark">#FF49454F</color>
+    <color name="sentry_on_surface_variant_dark">#FFCAC4D0</color>
+
+    <!-- Background Dark -->
+    <color name="sentry_background_dark">#FF121216</color>
+    <color name="sentry_on_background_dark">#FFE6E1E5</color>
+
+    <!-- Error Dark -->
+    <color name="sentry_error_dark">#FFEF5350</color>
+    <color name="sentry_on_error_dark">#FF601410</color>
+    <color name="sentry_error_container_dark">#FFB71C1C</color>
+    <color name="sentry_on_error_container_dark">#FFFFEBEE</color>
+
+    <!-- Outline Dark -->
+    <color name="sentry_outline_dark">#FF938F99</color>
+    <color name="sentry_outline_variant_dark">#FF49454F</color>
+
+    <!-- ============================================ -->
+    <!-- Status Colors                                -->
+    <!-- ============================================ -->
+
+    <!-- Healthy/Success -->
+    <color name="status_healthy">#FF43A047</color>
+    <color name="status_healthy_container">#FFE8F5E9</color>
+    <color name="status_healthy_dark">#FF66BB6A</color>
+    <color name="status_healthy_container_dark">#FF2E7D32</color>
+
+    <!-- Warning -->
+    <color name="status_warning">#FFFB8C00</color>
+    <color name="status_warning_container">#FFFFF3E0</color>
+    <color name="status_warning_dark">#FFFFA726</color>
+    <color name="status_warning_container_dark">#FFEF6C00</color>
+
+    <!-- Danger/Error -->
+    <color name="status_danger">#FFE53935</color>
+    <color name="status_danger_container">#FFFFEBEE</color>
+    <color name="status_danger_dark">#FFEF5350</color>
+    <color name="status_danger_container_dark">#FFC62828</color>
+
+    <!-- Unknown -->
+    <color name="status_unknown">#FF78909C</color>
+    <color name="status_unknown_container">#FFECEFF1</color>
+    <color name="status_unknown_dark">#FF90A4AE</color>
+    <color name="status_unknown_container_dark">#FF546E7A</color>
+
+    <!-- ============================================ -->
+    <!-- Legacy Colors (for compatibility)            -->
+    <!-- ============================================ -->
+
+    <!-- Teal (Legacy) -->
+    <color name="teal_100">#FFB2DFDB</color>
+    <color name="teal_200">#FF80CBC4</color>
+    <color name="teal_500">#FF009688</color>
+    <color name="teal_600">#FF00897B</color>
+    <color name="teal_700">#FF00796B</color>
+    <color name="teal_800">#FF00695C</color>
+    <color name="teal_900">#FF004D40</color>
+
+    <!-- Cyan (Legacy) -->
+    <color name="cyan_100">#FFB2EBF2</color>
+    <color name="cyan_300">#FF4DD0E1</color>
+    <color name="cyan_600">#FF00ACC1</color>
+    <color name="cyan_900">#FF006064</color>
+
+    <!-- Amber (Legacy) -->
+    <color name="amber_600">#FFFFB300</color>
+
+    <!-- Status Colors (Legacy) -->
+    <color name="green_500">#FF4CAF50</color>
+    <color name="green_600">#FF43A047</color>
+    <color name="yellow_600">#FFFDD835</color>
+    <color name="orange_600">#FFFB8C00</color>
+    <color name="red_500">#FFF44336</color>
+    <color name="red_600">#FFE53935</color>
+
+    <!-- Neutral (Legacy) -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="gray_50">#FFFAFAFA</color>
+    <color name="gray_100">#FFF5F5F5</color>
+    <color name="gray_200">#FFEEEEEE</color>
+    <color name="gray_300">#FFE0E0E0</color>
+    <color name="gray_400">#FFBDBDBD</color>
+    <color name="gray_500">#FF9E9E9E</color>
+    <color name="gray_600">#FF757575</color>
+    <color name="gray_700">#FF616161</color>
+    <color name="gray_800">#FF424242</color>
+    <color name="gray_900">#FF212121</color>
+
+    <!-- Surface Colors (Legacy) -->
+    <color name="background">#FFF5F5F5</color>
+    <color name="on_background">#FF1C1B1F</color>
+    <color name="surface">#FFFEFEFE</color>
+    <color name="on_surface">#FF1C1B1F</color>
+    <color name="surface_variant">#FFE7E0EC</color>
+    <color name="on_surface_variant">#FF49454F</color>
+</resources>
