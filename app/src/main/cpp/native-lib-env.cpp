@@ -70,25 +70,6 @@ Java_anti_rusda_detector_EnvDetectionManager_nativeDetectBootloader(JNIEnv *env,
     return buildResult(env, status, summary, details, n);
 }
 
-// Boot image patch: /proc/cmdline AVB + dm-verity; status 0=NORMAL,1=WARNING,2=DANGER
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_EnvDetectionManager_nativeDetectBootPatch(JNIEnv *env, jclass clazz) {
-    char details[MAX_DETAILS][256];
-    int status;
-    int n = env_detect_boot_patch(&status, details, MAX_DETAILS);
-    const char *summary;
-    if (status == 2) {
-        summary = "Boot image patched or dm-verity disabled";
-    } else if (status == 1) {
-        summary = "Boot image modified or AVB uncertain";
-    } else if (n > 0 && strstr(details[0], "passed") != nullptr) {
-        summary = "Passed (device may not support AVB or /proc/cmdline)";
-    } else {
-        summary = "Boot image verified (AVB Green)";
-    }
-    return buildResult(env, status, summary, details, n);
-}
-
 // LSPosed: returns String[] { status, summary, ... }; status 2 = DANGER
 JNIEXPORT jobjectArray JNICALL
 Java_anti_rusda_detector_EnvDetectionManager_nativeDetectLsposed(JNIEnv *env, jclass clazz) {
@@ -127,6 +108,18 @@ Java_anti_rusda_detector_EnvDetectionManager_nativeCheckCgroup(JNIEnv *env, jcla
     int status = n > 0 ? 2 : 0;  /* 2 = DANGER */
     const char *detail = n > 0 ? details[0] : "";
     return buildResult(env, status, n > 0 ? "Container/virtualization detected" : "No container detected", details, n > 0 ? n : 0);
+}
+
+// Netlink permission: normal app gets EACCES; if socket+bind succeed → DANGER
+JNIEXPORT jobjectArray JNICALL
+Java_anti_rusda_detector_EnvDetectionManager_nativeDetectNetlinkPermission(JNIEnv *env, jclass clazz) {
+    char details[MAX_DETAILS][256];
+    int status;
+    int n = env_detect_netlink_permission(&status, details, MAX_DETAILS);
+    const char *summary = (status == 2)
+        ? "Netlink permission available (abnormal for app)"
+        : "Netlink access denied (normal)";
+    return buildResult(env, status, summary, details, n);
 }
 
 // Emulator: Java passes Build.*; native checks files + indicators

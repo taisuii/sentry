@@ -11,7 +11,7 @@
 #define LOG_TAG "AntiFrida"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 
-// Frida + LSPosed memory signatures (use syscall to bypass libc hook)
+// Frida + LSPosed + Xposed memory signatures (use syscall to bypass libc hook)
 static const char *FRIDA_SIGNATURES[] = {
     "frida",
     "FRIDA",
@@ -26,6 +26,16 @@ static const char *FRIDA_SIGNATURES[] = {
     "frida-server",
     "liblspd.so",
     "libriru.so",
+    /* Xposed / LSPosed / EdXposed */
+    "libxposed",
+    "xposed_art",
+    "xposed_bridge",
+    "XposedBridge",
+    "XposedHelpers",
+    "xposed.installer",
+    "XposedBridge.jar",
+    "de.robv.android.xposed",
+    "org.lsposed",
     nullptr
 };
 

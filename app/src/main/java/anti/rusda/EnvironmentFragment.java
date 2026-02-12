@@ -39,7 +39,17 @@ public class EnvironmentFragment extends Fragment {
         adapter = new DetectionAdapter();
         recyclerView.setLayoutManager(new LinearLayoutManager(requireContext()));
         recyclerView.setAdapter(adapter);
-        if (getActivity() instanceof MainActivity) {
+        bindScanButton();
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        bindScanButton();
+    }
+
+    private void bindScanButton() {
+        if (scanButton != null && getActivity() instanceof MainActivity) {
             scanButton.setOnClickListener(((MainActivity) getActivity()).getScanClickListener());
         }
     }

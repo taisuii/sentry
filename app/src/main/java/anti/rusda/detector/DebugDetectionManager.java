@@ -1,12 +1,14 @@
 package anti.rusda.detector;
 
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.os.Debug;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -26,6 +28,8 @@ public class DebugDetectionManager {
     private static native String[] nativeGetMemorySignatureResult();
     /** Native Hook 检测（内联/PLT/GOT），增强 Xposed 检测 */
     private static native String[] nativeDetectHook();
+    /** Native Xposed 特征路径与 /proc/self/fd（linjector 等）检测 */
+    private static native String[] nativeDetectXposedPaths();
 
     public static void ensureNativeLoaded() {
         try {
@@ -33,7 +37,12 @@ public class DebugDetectionManager {
         } catch (Throwable ignored) { }
     }
 
+    /** 无 Context 时应用列表检测不执行；建议使用 {@link #runAllDetections(Context)}。 */
     public List<DetectionResult> runAllDetections() {
+        return runAllDetections(null);
+    }
+
+    public List<DetectionResult> runAllDetections(Context context) {
         ensureNativeLoaded();
         List<DetectionResult> results = new ArrayList<>();
         results.add(detectFridaThreads());
@@ -42,7 +51,7 @@ public class DebugDetectionManager {
         results.add(detectNamedPipes());
         results.add(detectPtraceStatus());
         results.add(detectDebuggerAttached());
-        results.add(checkLibraryIntegrity());
+        results.add(checkLibraryIntegrity(context));
         return results;
     }
 
@@ -168,8 +177,16 @@ public class DebugDetectionManager {
         );
     }
 
-    /** Java 反射 + Native 内联/PLT 检测，双重验证 */
-    private DetectionResult checkLibraryIntegrity() {
+    /** 包名：Xposed Installer、LSPosed Manager、EdXposed Manager 等 */
+    private static final String[] XPOSED_APP_PACKAGES = {
+            "de.robv.android.xposed.installer",
+            "org.lsposed.manager",
+            "me.weishu.exp",
+            "io.github.lsposed.manager",
+    };
+
+    /** Java 多维度检测 + Native 内联/PLT/路径 检测 */
+    private DetectionResult checkLibraryIntegrity(Context context) {
         List<String> details = new ArrayList<>();
         int status = DetectionResult.STATUS_NORMAL;
 
@@ -182,7 +199,40 @@ public class DebugDetectionManager {
             details.add("Xposed framework not detected (Class.forName)");
         }
 
-        /* 2. Native: 内联 Hook、PLT/GOT、libc 完整性 */
+        /* 2. Java: 堆栈检测 — 自造异常检查堆栈中是否包含 Xposed 特征类 */
+        if (status != DetectionResult.STATUS_DANGER && detectXposedInStack()) {
+            details.add("Xposed framework detected (stack trace)");
+            status = DetectionResult.STATUS_DANGER;
+        }
+
+        /* 3. Java: 反射检测 XposedHelpers / findAndHookMethod */
+        if (status != DetectionResult.STATUS_DANGER && detectXposedByReflection(details)) {
+            status = DetectionResult.STATUS_DANGER;
+        }
+
+        /* 4. Java: 已安装应用列表检测（需 Context） */
+        if (context != null && status != DetectionResult.STATUS_DANGER) {
+            List<String> installed = getInstalledXposedPackages(context);
+            if (!installed.isEmpty()) {
+                details.add("Xposed/LSPosed app installed: " + String.join(", ", installed));
+                status = DetectionResult.STATUS_DANGER;
+            }
+        }
+
+        /* 5. Native: Xposed 特征路径与 fd（linjector 等） */
+        String[] pathRaw = nativeDetectXposedPaths();
+        if (pathRaw != null && pathRaw.length >= 2) {
+            try {
+                if (Integer.parseInt(pathRaw[0]) == DetectionResult.STATUS_DANGER) {
+                    for (int i = 2; i < pathRaw.length; i++) {
+                        details.add(pathRaw[i]);
+                    }
+                    status = DetectionResult.STATUS_DANGER;
+                }
+            } catch (NumberFormatException ignored) { }
+        }
+
+        /* 6. Native: 内联 Hook、PLT/GOT、libc 完整性 */
         String[] hookRaw = nativeDetectHook();
         if (hookRaw != null && hookRaw.length >= 2) {
             try {
@@ -200,6 +250,74 @@ public class DebugDetectionManager {
                 status,
                 details
         );
+    }
+
+    /** 通过自造异常检查堆栈中是否包含 Xposed 特征类名 */
+    private static boolean detectXposedInStack() {
+        try {
+            throw new RuntimeException("xposed_stack_check");
+        } catch (Throwable t) {
+            for (StackTraceElement e : t.getStackTrace()) {
+                String cn = e.getClassName();
+                if (cn != null && (cn.contains("de.robv.android.xposed.XposedBridge")
+                        || cn.contains("de.robv.android.xposed.XposedHelpers")
+                        || cn.contains("org.lsposed"))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** 反射检测 XposedHelpers / XposedBridge 中的 findAndHookMethod 等关键方法是否存在 */
+    private static boolean detectXposedByReflection(List<String> details) {
+        String[] classesToCheck = {
+                "de.robv.android.xposed.XposedHelpers",
+                "de.robv.android.xposed.XposedBridge"
+        };
+        String[] methodsToCheck = { "findAndHookMethod", "hookAllMethods" };
+        for (String className : classesToCheck) {
+            try {
+                Class<?> c = Class.forName(className);
+                for (String methodName : methodsToCheck) {
+                    for (Method m : c.getDeclaredMethods()) {
+                        if (methodName.equals(m.getName())) {
+                            if (details != null) {
+                                details.add("Xposed API present: " + className + "." + methodName);
+                            }
+                            return true;
+                        }
+                    }
+                }
+            } catch (ClassNotFoundException ignored) {
+                // 该类不存在，继续检查下一个
+            } catch (Throwable t) {
+                if (details != null) {
+                    details.add("Reflection check exception: " + t.getMessage());
+                }
+                return true; // 反射异常可能为环境篡改
+            }
+        }
+        return false;
+    }
+
+    /** 检查是否安装 Xposed Installer / LSPosed / EdXposed 等应用 */
+    private static List<String> getInstalledXposedPackages(Context context) {
+        List<String> found = new ArrayList<>();
+        if (context == null) return found;
+        PackageManager pm = context.getPackageManager();
+        if (pm == null) return found;
+        try {
+            for (String pkg : XPOSED_APP_PACKAGES) {
+                try {
+                    pm.getPackageInfo(pkg, 0);
+                    found.add(pkg);
+                } catch (PackageManager.NameNotFoundException ignored) {
+                    // 未安装
+                }
+            }
+        } catch (Throwable ignored) { }
+        return found;
     }
 
     private static String readFileContent(String path) throws IOException {

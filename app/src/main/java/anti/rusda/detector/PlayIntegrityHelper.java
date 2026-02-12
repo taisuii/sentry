@@ -3,6 +3,8 @@ package anti.rusda.detector;
 import android.content.Context;
 import android.util.Base64;
 
+import anti.rusda.BuildConfig;
+
 import com.google.android.play.core.integrity.IntegrityManager;
 import com.google.android.play.core.integrity.IntegrityManagerFactory;
 import com.google.android.play.core.integrity.IntegrityTokenRequest;
@@ -62,9 +64,11 @@ public class PlayIntegrityHelper {
         new SecureRandom().nextBytes(nonceBytes);
         String nonce = Base64.encodeToString(nonceBytes, Base64.NO_WRAP);
 
-        IntegrityTokenRequest request = IntegrityTokenRequest.builder()
-                .setNonce(nonce)
-                .build();
+        IntegrityTokenRequest.Builder requestBuilder = IntegrityTokenRequest.builder().setNonce(nonce);
+        if (BuildConfig.PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER != 0L) {
+            requestBuilder.setCloudProjectNumber(BuildConfig.PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER);
+        }
+        IntegrityTokenRequest request = requestBuilder.build();
 
         final CountDownLatch latch = new CountDownLatch(1);
         final int[] statusHolder = {DetectionResult.STATUS_DANGER};
@@ -96,6 +100,11 @@ public class PlayIntegrityHelper {
                         statusHolder[0] = DetectionResult.STATUS_NORMAL;
                         summaryHolder[0] = "Play Store/Services not installed - passed (OEM without GMS)";
                         detailHolder[0] = "Device has no Google Play - treat as pass to avoid false positive";
+                    } else if (msg != null && isDeveloperNotConfigured(msg)) {
+                        /* 云项目未配置（如 -16）等：视为开发者未配置，通过不扣分 */
+                        statusHolder[0] = DetectionResult.STATUS_NORMAL;
+                        summaryHolder[0] = "Play Integrity not configured by developer - passed";
+                        detailHolder[0] = "Configure cloud project in Play Console or build.gradle (PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER) to enable";
                     } else {
                         statusHolder[0] = DetectionResult.STATUS_WARNING;
                         summaryHolder[0] = "Play Integrity request failed";
@@ -129,5 +138,18 @@ public class PlayIntegrityHelper {
                 || m.contains("play store")
                 || m.contains("play services")
                 || m.contains("google play services");
+    }
+
+    /** 判断是否为「开发者未配置」（如云项目 -16、Nonce 格式 -13 等），此类视为通过不扣分 */
+    private static boolean isDeveloperNotConfigured(String msg) {
+        if (msg == null) return false;
+        String m = msg.toLowerCase();
+        return m.contains("-16")
+                || m.contains("cloud_project_number_is_invalid")
+                || m.contains("cloud project number")
+                || m.contains("cloud project number is invalid")
+                || m.contains("-13")
+                || m.contains("nonce_is_not_base64")
+                || m.contains("nonce is not encoded");
     }
 }

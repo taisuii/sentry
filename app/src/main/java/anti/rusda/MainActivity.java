@@ -1,10 +1,15 @@
 package anti.rusda;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.tabs.TabLayoutMediator;
@@ -88,6 +93,35 @@ public class MainActivity extends BaseActivity {
         }).attach();
 
         setupToolbar();
+        applyNavigationBarInsets();
+
+        // 启动时自动检测：若用户已开启则延迟执行一次，确保 UI 就绪
+        SharedPreferences prefs = getSharedPreferences("sentry_prefs", MODE_PRIVATE);
+        if (prefs.getBoolean("auto_scan", false)) {
+            new Handler(Looper.getMainLooper()).postDelayed(this::runAllScans, 500);
+        }
+    }
+
+    /** 为底部 Tab 预留系统导航条（Home 条/手势条）区域，避免被遮挡 */
+    private void applyNavigationBarInsets() {
+        View root = findViewById(android.R.id.content);
+        int tabBarHeightPx = (int) (56 * getResources().getDisplayMetrics().density);
+
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+            int bottomInset = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
+            androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams tabLp =
+                    (androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams) tabLayout.getLayoutParams();
+            tabLp.bottomMargin = bottomInset;
+            tabLayout.setLayoutParams(tabLp);
+
+            androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams pagerLp =
+                    (androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams) pager.getLayoutParams();
+            pagerLp.bottomMargin = tabBarHeightPx + bottomInset;
+            pager.setLayoutParams(pagerLp);
+
+            return insets;
+        });
+        ViewCompat.requestApplyInsets(root);
     }
 
     private void setupToolbar() {
@@ -119,7 +153,7 @@ public class MainActivity extends BaseActivity {
 
         new Thread(() -> {
             try {
-                List<DetectionResult> debug = debugDetectionManager.runAllDetections();
+                List<DetectionResult> debug = debugDetectionManager.runAllDetections(getApplicationContext());
                 List<DetectionResult> env = envDetectionManager.runAllDetections();
 
                 int total = 0, max = 0;

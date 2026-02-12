@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "Bash(dir:*)",
+      "Bash(tree:*)",
+      "Bash(.gradlew build)",
+      "Bash(gradlew.bat build)",
+      "Bash(keytool -genkey:*)",
+      "Bash(\"C:\\Program Files\\Android\\Android Studio\\jbr\\bin\\keytool.exe\" -genkey:*)",
+      "Bash(.gradlew.bat assembleRelease --no-daemon)",
+      "Bash(bash:*)",
+      "Bash(1:*)",
+      "Bash(findstr:*)",
+      "Bash(./gradlew app:assembleDebug:*)",
+      "Bash(del /f:*)",
+      "Bash(xargs:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

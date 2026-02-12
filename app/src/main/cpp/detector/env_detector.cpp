@@ -6,9 +6,16 @@
 #include <unistd.h>
 #include <cstring>
 #include <cstdio>
+#include <cerrno>
+#include <sys/socket.h>
 
 #if defined(__ANDROID__)
 #include <sys/system_properties.h>
+#endif
+
+#if defined(__linux__)
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
 #endif
 
 #define AF_INET      2
@@ -414,92 +421,71 @@ int env_detect_cgroup(char (*details)[256], int max_details) {
     return n;
 }
 
-/* Extract value from cmdline key=value, e.g. "androidboot.verifiedbootstate=orange" */
-static int parse_cmdline_value(const char *buffer, const char *key, char *out, int out_len) {
-    const char *ptr = my_strstr(buffer, key);
-    if (!ptr) return 0;
-    ptr += my_strlen(key);
-    if (*ptr != '=') return 0;
-    ptr++;
-    int i = 0;
-    while (i < out_len - 1 && ptr[i] && ptr[i] != ' ' && ptr[i] != '\n') {
-        out[i] = ptr[i];
-        i++;
-    }
-    out[i] = '\0';
-    return i;
-}
+#if defined(__linux__) && defined(AF_NETLINK) && defined(NETLINK_ROUTE)
+#ifndef RTMGRP_NEIGH
+#define RTMGRP_NEIGH   4
+#endif
+#ifndef RTMGRP_LINK
+#define RTMGRP_LINK    1
+#endif
 
-static void check_veritymode(const char *buffer, int *out_status,
-                             char (*details)[256], int max_details, int *n) {
-    char verity[32] = {0};
-    if (parse_cmdline_value(buffer, "androidboot.veritymode", verity, sizeof(verity)) == 0)
-        return;
-
-    if (*n < max_details) snprintf(details[(*n)++], 256, "dm-verity: %s", verity);
-
-    if (my_strcmp(verity, "enforcing") == 0) return;
-
-    if (my_strstr(verity, "disabled") || my_strstr(verity, "Disabled") ||
-        my_strstr(verity, "eio")) {
-        if (*n < max_details) snprintf(details[(*n)++], 256, "dm-verity disabled or in eio mode");
-        if (*out_status < 2) *out_status = 2;
-    }
-}
-
-int env_detect_boot_patch(int *out_status, char (*details)[256], int max_details) {
+/* Netlink 权限检测（与 Hunter 等一致）：
+ * 目的：检测 SELinux 是否被修改（root 环境特征）。Android 10+ 通过 SELinux 限制普通 app
+ * 对 NETLINK_ROUTE 多播组的 bind；Magisk/KernelSU 可能放宽此限制。
+ * 逻辑：若 bind() 成功 → 权限异常 → DANGER；socket 创建失败或 bind 被拒绝 → NORMAL。 */
+int env_detect_netlink_permission(int *out_status, char (*details)[256], int max_details) {
     *out_status = 0;  /* NORMAL */
     int n = 0;
 
-    int fd = my_open("/proc/cmdline", 0, 0);  /* O_RDONLY */
-    if (fd < 0) {
-        if (n < max_details) snprintf(details[n++], 256, "Cannot read /proc/cmdline (some devices restrict it) - passed");
-        *out_status = 0;  /* NORMAL: some OEMs block /proc/cmdline, treat as pass to avoid false positive */
+    int sock = my_socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+    if (sock < 0) {
+        int e = errno;
+        if (n < max_details) {
+            if (e == EACCES || e == EPERM) {
+                snprintf(details[n], 256, "Netlink socket denied (EACCES/EPERM) - normal");
+            } else {
+                snprintf(details[n], 256, "Netlink socket failed: errno %d", e);
+            }
+            n++;
+        }
         return n;
     }
 
-    char buffer[4096] = {0};
-    ssize_t len = my_read(fd, buffer, sizeof(buffer) - 1);
-    my_close(fd);
+    struct sockaddr_nl addr;
+    my_memset(&addr, 0, sizeof(addr));
+    addr.nl_family = AF_NETLINK;
+    addr.nl_pid = getpid();
+    addr.nl_groups = RTMGRP_NEIGH | RTMGRP_LINK;  /* 邻居表 + 链路组 */
 
-    if (len <= 0) {
-        if (n < max_details) snprintf(details[n++], 256, "Empty cmdline - passed (device may not expose it)");
-        *out_status = 0;  /* NORMAL: some devices return empty, treat as pass */
-        return n;
-    }
-    buffer[len] = '\0';
-
-    /* 1. Parse androidboot.verifiedbootstate (AVB state from bootloader) */
-    char state[32] = {0};
-    int state_len = parse_cmdline_value(buffer, "androidboot.verifiedbootstate", state, sizeof(state));
-
-    if (state_len == 0) {
-        if (n < max_details) snprintf(details[n++], 256, "No AVB state in cmdline (device may not support AVB) - passed");
-        *out_status = 0;  /* NORMAL: Huawei/Chinese OEMs often lack AVB, treat as pass to avoid false positive */
+    if (bind(sock, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) == 0) {
+        /* bind 成功 → 普通 app 本不应有此权限，说明 SELinux 可能被修改（root 环境） */
+        my_close(sock);
+        *out_status = 2;  /* DANGER */
+        if (n < max_details) {
+            snprintf(details[n], 256, "Netlink bind succeeded - SELinux may be modified (root environment)");
+            n++;
+        }
         return n;
     }
 
-    if (n < max_details) snprintf(details[n++], 256, "AVB verifiedbootstate: %s", state);
-
-    /* green = NORMAL, yellow = WARNING, orange/red = DANGER */
-    if (my_strcmp(state, "green") == 0) {
-        *out_status = 0;
-    } else if (my_strcmp(state, "yellow") == 0) {
-        if (n < max_details) snprintf(details[n++], 256, "Self-signed boot image (non-OEM key)");
-        *out_status = 1;
-    } else if (my_strcmp(state, "orange") == 0) {
-        if (n < max_details) snprintf(details[n++], 256, "Bootloader unlocked or boot.img patched (Magisk)");
-        *out_status = 2;
-    } else if (my_strcmp(state, "red") == 0) {
-        if (n < max_details) snprintf(details[n++], 256, "AVB verification failed");
-        *out_status = 2;
-    } else {
-        if (n < max_details) snprintf(details[n++], 256, "Unknown AVB state");
-        *out_status = 1;
+    /* bind 失败（EPERM/EACCES 等）→ 符合预期，权限正常 */
+    my_close(sock);
+    if (n < max_details) {
+        int e = errno;
+        if (e == EACCES || e == EPERM) {
+            snprintf(details[n], 256, "Netlink bind denied - normal app cannot bind NETLINK_ROUTE (expected)");
+        } else {
+            snprintf(details[n], 256, "Netlink bind failed: errno %d - normal", e);
+        }
+        n++;
     }
-
-    /* 2. dm-verity check: disabled/eio upgrades to DANGER */
-    check_veritymode(buffer, out_status, details, max_details, &n);
-
     return n;
 }
+#else
+int env_detect_netlink_permission(int *out_status, char (*details)[256], int max_details) {
+    (void)details;
+    (void)max_details;
+    *out_status = 0;
+    return 0;
+}
+#endif

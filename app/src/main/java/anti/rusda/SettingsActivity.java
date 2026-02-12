@@ -1,5 +1,6 @@
 package anti.rusda;
 
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 
@@ -78,8 +79,10 @@ public class SettingsActivity extends BaseActivity {
 
     private void setLanguage(String lang) {
         LocaleHelper.setLocale(this, lang);
-        // 优雅方式：广播通知所有Activity语言已变更
-        notifyLanguageChanged(this);
-        // 本界面也会收到广播并自动重建
+        // 切换语言后直接重启应用：避免 recreate 导致检测结果丢失、Native 状态异常无法检测
+        Intent i = new Intent(this, MainActivity.class);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(i);
+        finish();
     }
 }

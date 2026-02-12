@@ -1,16 +1,21 @@
 package anti.rusda.ui.adapter;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.chip.Chip;
 
@@ -58,6 +63,7 @@ public class DetectionAdapter extends RecyclerView.Adapter<DetectionAdapter.View
         private final Chip statusChip;
         private final LinearLayout detailsContainer;
         private final View detailsDivider;
+        private final MaterialButton btnCopy;
 
         public ViewHolder(@NonNull View itemView) {
             super(itemView);
@@ -70,6 +76,7 @@ public class DetectionAdapter extends RecyclerView.Adapter<DetectionAdapter.View
             statusChip = itemView.findViewById(R.id.status_chip);
             detailsContainer = itemView.findViewById(R.id.details_container);
             detailsDivider = itemView.findViewById(R.id.details_divider);
+            btnCopy = itemView.findViewById(R.id.btn_copy);
         }
 
         public void bind(DetectionResult item) {
@@ -135,6 +142,19 @@ public class DetectionAdapter extends RecyclerView.Adapter<DetectionAdapter.View
             cardView.setOnClickListener(v -> {
                 item.setExpanded(!item.isExpanded());
                 detailsContainer.setVisibility(item.isExpanded() ? View.VISIBLE : View.GONE);
+            });
+
+            // Copy details to clipboard and show toast
+            btnCopy.setOnClickListener(v -> {
+                CharSequence text = detailsContent.getText();
+                if (text != null && text.length() > 0) {
+                    Context ctx = v.getContext();
+                    ClipboardManager clipboard = (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(ClipData.newPlainText("detection_details", text));
+                        Toast.makeText(ctx, R.string.copy_to_clipboard, Toast.LENGTH_SHORT).show();
+                    }
+                }
             });
 
             // Card stroke based on status

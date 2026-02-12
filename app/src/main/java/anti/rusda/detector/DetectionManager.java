@@ -25,7 +25,7 @@ public class DetectionManager {
         List<DetectionResult> results = new ArrayList<>();
         DebugDetectionManager.ensureNativeLoaded();
         DebugDetectionManager debug = new DebugDetectionManager();
-        results.addAll(debug.runAllDetections());
+        results.addAll(debug.runAllDetections(context));
         EnvDetectionManager env = new EnvDetectionManager(context != null ? context : null);
         if (context != null) {
             results.addAll(env.runAllDetections());

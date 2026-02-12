@@ -13,6 +13,9 @@ android {
         versionCode 1
         versionName "1.0"
 
+        // Play Integrity：填 0 表示使用 Play Console 关联的 GCP 项目；填你的项目编号可解决 -16 或调试包无法关联的情况
+        buildConfigField "long", "PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER", "0L"
+
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         // Only build arm64-v8a for simplicity
@@ -68,6 +71,7 @@ android {
     }
     buildFeatures {
         viewBinding true
+        buildConfig true
     }
 }
 
@@ -81,6 +85,7 @@ dependencies {
     implementation libs.coordinatorlayout
     implementation libs.localbroadcastmanager
     implementation libs.play.integrity
+    implementation libs.bouncycastle
     testImplementation libs.junit
     androidTestImplementation libs.ext.junit
     androidTestImplementation libs.espresso.core

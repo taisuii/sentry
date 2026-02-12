@@ -12,6 +12,18 @@
     <string name="security_score">安全分数</string>
     <string name="device_info">设备信息</string>
 
+    <!-- System / Device info labels (Overview) -->
+    <string name="label_model">型号</string>
+    <string name="label_manufacturer">制造商</string>
+    <string name="label_device">设备</string>
+    <string name="label_brand">品牌</string>
+    <string name="label_android_version">安卓版本</string>
+    <string name="label_security_patch">安全补丁</string>
+    <string name="label_kernel">内核</string>
+    <string name="label_build_type">构建类型</string>
+    <string name="label_build_tags">构建标签</string>
+    <string name="label_fingerprint">设备指纹</string>
+
     <!-- Status -->
     <string name="status_healthy">正常</string>
     <string name="status_risk">发现风险</string>
@@ -71,7 +83,7 @@
 
     <!-- Detection Details -->
     <string name="detail_frida_threads">检查进程中是否存在 Frida 相关线程</string>
-    <string name="detail_frida_ports">扫描 Frida 默认端口（27042、27043、27044）</string>
+    <string name="detail_frida_ports">扫描 Frida 默认端口（27042、27043、27044）及 frida-server 进程监听</string>
     <string name="detail_frida_memory">扫描内存中的 Frida 代理签名</string>
     <string name="detail_debug_mode">检查是否有调试器附加</string>
     <string name="detail_hooks">检测函数 Hook 和行内补丁</string>
@@ -83,6 +95,7 @@
     <string name="export_report">导出报告</string>
     <string name="view_logs">查看日志</string>
     <string name="copy_details">复制详情</string>
+    <string name="copy_to_clipboard">已复制到剪贴板</string>
     <string name="report">报告</string>
 
     <!-- Settings Categories -->

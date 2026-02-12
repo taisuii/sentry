@@ -6,6 +6,7 @@
 #include "detector/memory_scanner.h"
 #include "detector/port_scanner.h"
 #include "detector/hook_detector.h"
+#include "detector/xposed_detector.h"
 #include "detector/anti_debug.h"
 
 #define MAX_MEMORY_DETAILS 16
@@ -15,6 +16,29 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 extern "C" {
+
+// Xposed path/fd detection: String[] { status, summary, detail0, ... }; uses syscall for paths
+JNIEXPORT jobjectArray JNICALL
+Java_anti_rusda_detector_DebugDetectionManager_nativeDetectXposedPaths(JNIEnv *env, jclass clazz) {
+    char details[MAX_MEMORY_DETAILS][256];
+    int n = get_xposed_path_and_fd_details(details, MAX_MEMORY_DETAILS);
+    int status = (n > 0) ? 2 : 0;  /* 2 = DANGER, 0 = NORMAL */
+    jclass stringClass = env->FindClass("java/lang/String");
+    if (!stringClass) return nullptr;
+    int arrLen = 2 + (n > 0 ? n : 1);
+    jobjectArray arr = env->NewObjectArray(arrLen, stringClass, nullptr);
+    if (!arr) return nullptr;
+    env->SetObjectArrayElement(arr, 0, env->NewStringUTF(status == 2 ? "2" : "0"));
+    env->SetObjectArrayElement(arr, 1, env->NewStringUTF(n > 0 ? "Xposed-related paths or fd detected" : "No Xposed paths/fd detected"));
+    if (n == 0) {
+        env->SetObjectArrayElement(arr, 2, env->NewStringUTF("No Xposed path or linjector fd found"));
+    } else {
+        for (int i = 0; i < n; i++) {
+            env->SetObjectArrayElement(arr, 2 + i, env->NewStringUTF(details[i]));
+        }
+    }
+    return arr;
+}
 
 // Hook detection for Java: String[] { status, summary, detail }; enhances Xposed detection
 JNIEXPORT jobjectArray JNICALL
@@ -95,9 +119,15 @@ Java_anti_rusda_detector_DebugDetectionManager_nativeGetFridaPortScanResult(JNIE
     } else {
         for (int i = 0; i < n; i++) {
             int port = get_frida_port_open_at(i);
+            const char *detail;
             char buf[64];
-            snprintf(buf, sizeof(buf), "Port %d is open (Frida default)", port);
-            env->SetObjectArrayElement(arr, 2 + i, env->NewStringUTF(buf));
+            if (port == 0) {
+                detail = "frida-server process with listening TCP (Frida 16+ random port)";
+            } else {
+                snprintf(buf, sizeof(buf), "Port %d is open (Frida default)", port);
+                detail = buf;
+            }
+            env->SetObjectArrayElement(arr, 2 + i, env->NewStringUTF(detail));
         }
     }
     return arr;

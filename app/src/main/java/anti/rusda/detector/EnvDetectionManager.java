@@ -44,12 +44,12 @@ public class EnvDetectionManager {
     private static native String nativeGetEnvVersion();
     private static native String[] nativeDetectMagisk();
     private static native String[] nativeDetectBootloader();
-    private static native String[] nativeDetectBootPatch();
     private static native String[] nativeDetectLsposed();
     private static native String[] nativeDetectSuspiciousFiles();
     private static native String[] nativeDetectEmulator(String hardware, String product, String device, String brand);
     private static native boolean nativeCheckPort(int port);
     private static native String[] nativeCheckCgroup();
+    private static native String[] nativeDetectNetlinkPermission();
 
     private final Context context;
 
@@ -60,11 +60,12 @@ public class EnvDetectionManager {
     public List<DetectionResult> runAllDetections() {
         List<DetectionResult> results = new ArrayList<>();
         results.add(detectBootloader());
-        results.add(detectBootPatch());
+        results.add(detectKeyAttestation());
         results.add(detectRoot());
         results.add(detectLsposed());
         results.add(detectPlayIntegrity());
         results.add(detectSuspiciousFiles());
+        results.add(detectNetlinkPermission());
         results.add(detectEmulator());
         results.add(detectKernelPatch());
         results.add(detectAdbEnhanced());
@@ -79,34 +80,28 @@ public class EnvDetectionManager {
     }
 
     /**
-     * Boot image integrity: /proc/cmdline AVB (verifiedbootstate) + dm-verity.
-     * Magisk patches boot.img → verifiedbootstate=orange.
-     * eng/userdebug builds: downgrade DANGER to WARNING to reduce false positives.
+     * Key Attestation（密钥认证）：通过 TEE/TrustZone 获取 RootOfTrust，
+     * 检测 verifiedBootKey 全零、deviceLocked=false、verifiedBootState=Unverified 等
+     * （与 Hunter 检测的 boot.img 被修补、bootloader 解锁一致）。
      */
-    private DetectionResult detectBootPatch() {
-        String[] raw = nativeDetectBootPatch();
+    private DetectionResult detectKeyAttestation() {
+        String[] raw = KeyAttestationHelper.runAttestationSync();
         if (raw == null || raw.length < 2) {
-            return new DetectionResult("Boot Image Integrity", "Check failed", DetectionResult.STATUS_WARNING);
+            return new DetectionResult("Key Attestation (Boot)", "Check failed", DetectionResult.STATUS_WARNING, 15);
         }
         int status = DetectionResult.STATUS_NORMAL;
         try {
             status = Integer.parseInt(raw[0]);
-        } catch (NumberFormatException ignored) { }
-
-        /* eng/userdebug: downgrade DANGER to WARNING (engineering ROMs often show orange) */
-        String buildType = Build.TYPE;
-        if (status == DetectionResult.STATUS_DANGER &&
-                (buildType != null && (buildType.equals("eng") || buildType.equals("userdebug")))) {
-            status = DetectionResult.STATUS_WARNING;
+        } catch (NumberFormatException ignored) {
         }
-
         String summary = raw[1];
         List<String> details = raw.length > 2
                 ? Arrays.asList(Arrays.copyOfRange(raw, 2, raw.length))
                 : Collections.emptyList();
-
-        DetectionResult result = new DetectionResult("Boot Image Integrity", summary, status, 15);
-        result.setDetails(details.isEmpty() ? Collections.singletonList("AVB state from /proc/cmdline") : details);
+        DetectionResult result = new DetectionResult("Key Attestation (Boot)", summary, status, 15);
+        result.setDetails(details.isEmpty()
+                ? Collections.singletonList("RootOfTrust from TEE/KeyStore attestation")
+                : details);
         return result;
     }
 
@@ -259,8 +254,8 @@ public class EnvDetectionManager {
                     details.add("Security patch: " + patchLevel);
                     details.add("Approx. " + monthsAgo + " months old");
                     if (monthsAgo >= 24) {
-                        status = DetectionResult.STATUS_DANGER;
-                        details.add("Kernel patch over 24 months old - critical");
+                        status = DetectionResult.STATUS_WARNING;
+                        details.add("Kernel patch over 24 months old - recommend update (not indicative of gray market)");
                     } else if (monthsAgo >= 12) {
                         status = DetectionResult.STATUS_WARNING;
                         details.add("Kernel patch over 12 months old");
@@ -274,9 +269,7 @@ public class EnvDetectionManager {
         }
         String summary = status == DetectionResult.STATUS_NORMAL
                 ? "Kernel patch level acceptable"
-                : status == DetectionResult.STATUS_WARNING
-                        ? "Kernel patch outdated (12+ months)"
-                        : "Kernel patch critically outdated (24+ months)";
+                : "Kernel patch outdated (12+ months) - warning only, not indicative of gray market";
         return new DetectionResult("Kernel Patch", summary, status, details);
     }
 
@@ -310,6 +303,15 @@ public class EnvDetectionManager {
     private DetectionResult detectSuspiciousFiles() {
         return fromNativeResult("Suspicious Files", nativeDetectSuspiciousFiles(),
                 "No suspicious files detected", "No Frida-related or debug files found");
+    }
+
+    /**
+     * Netlink 权限检测：普通应用在 Android 上创建/绑定 netlink 套接字会被 SELinux 拒绝 (EACCES)。
+     * 若创建+bind 成功，说明环境可能为 permissive 或已 root，与其它检测 App 的「netlink Find Permission」一致。
+     */
+    private DetectionResult detectNetlinkPermission() {
+        return fromNativeResult("Netlink Permission", nativeDetectNetlinkPermission(),
+                "Netlink access denied (normal)", "Netlink find permission");
     }
 
     private DetectionResult detectEmulator() {

@@ -9,6 +9,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     detector/memory_scanner.cpp
     detector/port_scanner.cpp
     detector/hook_detector.cpp
+    detector/xposed_detector.cpp
     detector/anti_debug.cpp
     utils/syscall_utils.cpp
 )

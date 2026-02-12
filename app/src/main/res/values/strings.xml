@@ -12,6 +12,18 @@
     <string name="security_score">Security score</string>
     <string name="device_info">Device info</string>
 
+    <!-- System / Device info labels (Overview) -->
+    <string name="label_model">Model</string>
+    <string name="label_manufacturer">Manufacturer</string>
+    <string name="label_device">Device</string>
+    <string name="label_brand">Brand</string>
+    <string name="label_android_version">Android Version</string>
+    <string name="label_security_patch">Security Patch</string>
+    <string name="label_kernel">Kernel</string>
+    <string name="label_build_type">Build Type</string>
+    <string name="label_build_tags">Build Tags</string>
+    <string name="label_fingerprint">Fingerprint</string>
+
     <!-- Status -->
     <string name="status_healthy">Healthy</string>
     <string name="status_risk">Risk Detected</string>
@@ -71,7 +83,7 @@
 
     <!-- Detection Details -->
     <string name="detail_frida_threads">Checking for Frida-related threads in process</string>
-    <string name="detail_frida_ports">Scanning for Frida default ports (27042, 27043, 27044)</string>
+    <string name="detail_frida_ports">Scan Frida default ports (27042, 27043, 27044) and frida-server process with listening TCP</string>
     <string name="detail_frida_memory">Scanning memory for Frida agent signatures</string>
     <string name="detail_debug_mode">Checking if debugger is attached</string>
     <string name="detail_hooks">Detecting function hooks and inline patches</string>
@@ -83,6 +95,7 @@
     <string name="export_report">Export Report</string>
     <string name="view_logs">View Logs</string>
     <string name="copy_details">Copy Details</string>
+    <string name="copy_to_clipboard">Copied to clipboard</string>
     <string name="report">Report</string>
 
     <!-- Settings Categories -->
