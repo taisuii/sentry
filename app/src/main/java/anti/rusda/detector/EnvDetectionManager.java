@@ -37,10 +37,6 @@ public class EnvDetectionManager {
             "io.github.huskydg.magisk"
     };
 
-    private static final String[] HIDE_TOOL_PACKAGES = {
-            "dev.rikka.hide.myapplist"   // Hide My Applist
-    };
-
     /** 风控应用：Xposed 模块 + MT Manager、Termux 等（可修改 APK、运行脚本） */
     private static final String[] DANGEROUS_APP_PACKAGES = {
             "bin.mt.plus",           // MT Manager
@@ -58,8 +54,8 @@ public class EnvDetectionManager {
     private static native String nativeGetEnvVersion();
     private static native String[] nativeDetectMagisk();
     private static native String[] nativeDetectBootloader();
-    private static native String[] nativeDetectLsposed();
     private static native String[] nativeDetectSuspiciousFiles();
+    private static native String[] nativeDetectZygiskInjection();
     private static native String[] nativeDetectEmulator(String hardware, String product, String device, String brand);
     private static native boolean nativeCheckPort(int port);
     private static native String[] nativeCheckCgroup();
@@ -76,7 +72,7 @@ public class EnvDetectionManager {
         List<DetectionResult> results = new ArrayList<>();
         results.add(detectBootloader());
         results.add(detectRoot());
-        results.add(detectLsposed());
+        results.add(detectZygiskInjection());
         results.add(detectXposedModules());
         results.add(detectSuspiciousFiles());
         results.add(detectEmulator());
@@ -252,34 +248,13 @@ public class EnvDetectionManager {
         return found;
     }
 
-    private DetectionResult detectLsposed() {
-        List<String> details = new ArrayList<>();
-        int status = DetectionResult.STATUS_NORMAL;
-
-        String[] nativeRaw = nativeDetectLsposed();
-        if (nativeRaw != null && nativeRaw.length >= 2) {
-            try {
-                status = Integer.parseInt(nativeRaw[0]);
-            } catch (NumberFormatException ignored) { }
-            if (nativeRaw.length > 2) {
-                details.addAll(Arrays.asList(Arrays.copyOfRange(nativeRaw, 2, nativeRaw.length)));
-            }
-        }
-
-        if (context != null) {
-            List<String> hideTools = checkHideToolPackages();
-            if (!hideTools.isEmpty()) {
-                status = DetectionResult.STATUS_DANGER;
-                details.addAll(hideTools);
-            }
-        }
-
-        String summary = (status == DetectionResult.STATUS_DANGER || !details.isEmpty())
-                ? "LSPosed or hide tool detected"
-                : "No LSPosed detected";
-        DetectionResult result = new DetectionResult("LSPosed / Hook", summary, status);
-        result.setDetails(details.isEmpty() ? Collections.singletonList("No LSPosed or hide tools found") : details);
-        return result;
+    /**
+     * Zygisk 注入检测：Smaps Private_Dirty + VMap 内存映射扫描（Zygisk/LSPosed/ZygiskNext 特征）。
+     * LSPosed Hook 已合并至调试检测的 Xposed / Hook Framework。
+     */
+    private DetectionResult detectZygiskInjection() {
+        return fromNativeResult("Zygisk Injection", nativeDetectZygiskInjection(),
+                "No Zygisk injection detected", "Smaps and memory maps scan clean");
     }
 
     /**
@@ -399,23 +374,6 @@ public class EnvDetectionManager {
             if (d.equals(pkg)) return true;
         }
         return false;
-    }
-
-    private List<String> checkHideToolPackages() {
-        List<String> found = new ArrayList<>();
-        if (context == null) return found;
-        PackageManager pm = context.getPackageManager();
-        if (pm == null) return found;
-        try {
-            for (String pkg : HIDE_TOOL_PACKAGES) {
-                try {
-                    pm.getPackageInfo(pkg, 0);
-                    found.add("Hide tool installed: " + pkg);
-                } catch (PackageManager.NameNotFoundException ignored) {
-                }
-            }
-        } catch (Exception ignored) { }
-        return found;
     }
 
     private DetectionResult detectKernelPatch() {

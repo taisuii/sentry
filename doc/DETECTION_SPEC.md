@@ -29,7 +29,7 @@ Sentry 提供 **17 项** 安全检测，分为两类：
 | 7 | Xposed / Hook Framework | 调试 | 10 | — | Xposed/LSPosed + Native Hook |
 | 8 | Bootloader | 环境 | **15** | — | 启动验证/锁定状态 + TEE RootOfTrust |
 | 9 | Magisk / Root | 环境 | **12** | — | Magisk/root 环境 |
-| 10 | LSPosed / Hook | 环境 | 10 | — | LSPosed/隐藏应用列表工具 |
+| 10 | Zygisk Injection | 环境 | 10 | — | Smaps Private_Dirty + VMap 内存映射 Zygisk 特征扫描 |
 | 11 | Dangerous Apps | 环境 | **5** | **是** | 多渠道检测 Xposed 模块（meta-data、APK assets/xposed_init、modules.list）；仅警告不扣分 |
 | 12 | Suspicious Files | 环境 | 10 | — | Frida/Magisk 等可疑路径 |
 | 13 | Emulator | 环境 | 10 | — | 模拟器特征 |
@@ -65,11 +65,11 @@ Sentry 提供 **17 项** 安全检测，分为两类：
 
 | 属性     | 说明 |
 |----------|------|
-| **目的** | 检测进程内存映射中是否存在 Frida/LSPosed 相关库或字符串 |
+| **目的** | 检测进程内存映射中是否存在 Frida/LSPosed 相关库或字符串；**增强**：匿名可执行内存（LSPosed 隐藏 so 时仍保留可执行权限） |
 | **实现层** | Native（C++，`memory_scanner.cpp`） |
-| **实现** | 使用 syscall `my_open`/`my_read` 读取 `/proc/self/maps`，逐行匹配签名：`frida`、`FRIDA`、`gum-js`、`gobject`、`gmain`、`frida-agent`、`frida-gadget`、`frida-server`、`liblspd.so`、`libriru.so` 等 |
-| **状态** | 发现任一签名 → `DANGER`；未发现 → `NORMAL` |
-| **设计说明** | 通过 syscall 与自实现字符串函数（如 `my_strcasestr`）减少 inline hook 风险 |
+| **实现** | 1) **签名匹配**：使用 syscall `my_open`/`my_read` 读取 `/proc/self/maps`，逐行匹配 `frida`、`FRIDA`、`gum-js`、`gobject`、`gmain`、`frida-agent`、`frida-gadget`、`frida-server`、`liblspd.so`、`libriru.so`、`libriruloader.so`、`libxposed`、`org.lsposed` 等；2) **匿名可执行内存**：解析 maps 行，识别匿名路径（排除 [vdso]/[vvar]/[stack]/[heap]）+ 可执行权限 + 大小 ≥128KB 的映射，最多报告 2 条，用于发现 LSPosed 等隐藏 so 后仍保留的可执行代码 |
+| **状态** | 发现任一签名或可疑匿名可执行内存 → `DANGER`；未发现 → `NORMAL` |
+| **设计说明** | 通过 syscall 与自实现字符串函数减少 inline hook 风险；匿名可执行内存检测阈值 128KB 降低 JIT 误报 |
 
 ### 2.4 Named Pipes
 
@@ -104,7 +104,7 @@ Sentry 提供 **17 项** 安全检测，分为两类：
 |----------|------|
 | **目的** | 检测 Xposed/LSPosed/EdXposed 框架及内联/PLT Hook、特征路径与注入 fd |
 | **实现层** | Java + Native（`hook_detector.cpp`、`xposed_detector.cpp`、`memory_scanner.cpp`）；入口方法名 `checkLibraryIntegrity(Context)` |
-| **实现** | 1) **Java**：① `Class.forName("de.robv.android.xposed.XposedBridge")`；② **堆栈检测**：自造异常，检查堆栈中是否包含 `XposedBridge`/`XposedHelpers`/`org.lsposed`；③ **反射检测**：反射查找 `XposedHelpers`/`XposedBridge` 的 `findAndHookMethod`、`hookAllMethods` 等关键方法；④ **应用列表**：检查是否安装 Xposed Installer、LSPosed Manager、EdXposed 等包名（需 Context）。2) **Native**：⑤ **特征路径与 fd**（`xposed_detector.cpp`，syscall）：检测 `/system/lib(64)/libxposed_*.so`、`/data/data/de.robv.android.xposed.installer`，以及 `/proc/self/fd` 中是否出现 `linjector`/`lsposed`/`riru`；⑥ **内存映射**（`memory_scanner.cpp`）：`/proc/self/maps` 中匹配 `libxposed`、`XposedBridge`、`XposedHelpers`、`org.lsposed` 等签名；⑦ 内联 Hook、PLT/GOT、libc 完整性（`hook_detector.cpp`）。 |
+| **实现** | 1) **Java**（检测**当前进程**是否被 hook，非「应用安装」）：① `Class.forName("de.robv.android.xposed.XposedBridge")`；② **堆栈检测**：自造异常，检查堆栈中是否包含 `XposedBridge`/`XposedHelpers`/`org.lsposed`；③ **反射检测**：反射查找 `XposedHelpers`/`XposedBridge` 的 `findAndHookMethod`、`hookAllMethods` 等关键方法；④ **ClassLoader 实例检测**：`VMDebug.getInstancesOfClasses` 遍历 ClassLoader，检查 `InMemoryClassLoader`、`LspModuleClassLoader`、`XposedBridge`、`EdXposed`，尝试加载 `org.lsposed.lspd.core.Main`，检查 parent 链含 Xposed/Lsp（需绕过 Hidden API）。2) **Native**：⑤ **特征路径与 fd**（`xposed_detector.cpp`，syscall）：检测 Xposed 路径、**LSPosed 路径**（`/data/adb/lspd`、`/data/adb/modules/zygisk_lsposed`）、**Riru 路径**、**ro.dalvik.vm.native.bridge** 可疑值、**Zygisk fexecve**（`/proc/self/exe` 为 `/dev/fd/X`）、**LD_PRELOAD/MAGISKTMP** 环境变量、`/proc/self/fd` 中 `linjector`/`lsposed`/`riru`；⑥ **内存映射**（`memory_scanner.cpp`）：`/proc/self/maps` 中匹配 `libxposed`、`XposedBridge`、`XposedHelpers`、`org.lsposed` 等签名；⑦ 内联 Hook、PLT/GOT、libc 完整性（`hook_detector.cpp`）。 |
 | **状态** | 任意一项命中 → `DANGER`；否则 `NORMAL` |
 
 ---
@@ -132,14 +132,15 @@ Sentry 提供 **17 项** 安全检测，分为两类：
 | **实现** | 1) Native：检测 `/data/adb/magisk`、`/data/adb/modules`、Shamiko（zygisk_shamiko）、zygisk_* 模块；2) Java：检查是否安装 `com.topjohnwu.magisk`、`io.github.huskydg.magisk` |
 | **状态** | 任意一项存在 → `DANGER` |
 
-### 3.3 LSPosed / Hook
+### 3.3 Zygisk Injection
 
 | 属性     | 说明 |
 |----------|------|
-| **目的** | 检测 LSPosed 及隐藏应用列表类工具 |
-| **实现层** | Native + Java |
-| **实现** | 1) Native：检测 `/data/adb/lspd`、`/data/adb/modules/zygisk_lsposed`；2) Java：检查是否安装 `dev.rikka.hide.myapplist`（Hide My Applist） |
-| **状态** | 任意一项存在 → `DANGER` |
+| **目的** | 检测 Magisk Zygisk、ZygiskNext、LSPosed 等通过内存注入的进程内特征 |
+| **实现层** | Native（`env_detector.cpp`，`env_detect_zygisk_injection`） |
+| **实现** | 1) **Smaps 检测**：读取 `/proc/self/smaps`，解析可执行段（`r-xp`/`r-x`），若 `.so` 映射段中 `Private_Dirty > 0` 则判为可疑注入（正常代码段不应有 Private_Dirty）；2) **VMap 检测**：扫描 `/proc/self/maps`，对匿名可执行映射（`r-x` + `anon`）读取内存，搜索 `zygisk_module_entry`、`libzygisk.so`、`ZygiskModule`、`zygisk` 等特征字符串。使用 syscall（`my_open`/`my_read`）绕过 libc。 |
+| **状态** | 任意一项命中 → `DANGER`；否则 `NORMAL` |
+| **设计说明** | 参考 Android-App-Memory-Analysis、JingMatrixDemo；JIT 可产生 Private_Dirty，需结合白名单与阈值；多种方法联合降低误报 |
 
 ### 3.4 Dangerous Apps
 
@@ -348,7 +349,7 @@ UI 展示（OverviewFragment）
 |--------------------|------------|--------------------|
 | detectBootloader | `nativeDetectBootloader` + `KeyAttestationHelper.runAttestationSync()` | `env_detect_bootloader` 与 Java Key Attestation |
 | detectRoot | `nativeDetectMagisk` | `env_detect_magisk` |
-| detectLsposed | `nativeDetectLsposed` | `env_detect_lsposed` |
+| detectZygiskInjection | `nativeDetectZygiskInjection` | `env_detect_zygisk_injection`（Smaps + VMap） |
 | detectXposedModules（Dangerous Apps） | `nativeVerifyXposedModules` | Java 双路径获取应用列表 + Native 校验 APK（assets/xposed_init）、modules.list |
 | detectSuspiciousFiles | `nativeDetectSuspiciousFiles` | `env_detect_suspicious_files` |
 | detectEmulator | `nativeDetectEmulator` | `env_detect_emulator_files` |
@@ -382,7 +383,7 @@ UI 展示（OverviewFragment）
 |------------------|------------|
 | 防 Frida 注入    | Frida Threads、Frida Ports、Memory Signatures、Named Pipes、Suspicious Files |
 | 防调试器附加     | Ptrace、Debugger Attached |
-| 防 Root/Hook     | Magisk/Root、LSPosed/Hook、Xposed、Dangerous Apps、Bootloader（含 Key Attestation） |
+| 防 Root/Hook     | Magisk/Root、Zygisk Injection、Xposed（含 LSPosed 路径/env）、Dangerous Apps、Bootloader（含 Key Attestation） |
 | 设备完整性       | Bootloader（含 Key Attestation）、Kernel Patch |
 | 防模拟器/容器    | Emulator、Container/Virtualization |
 | 开发/运维风险    | ADB Debug、Multi-instance |
@@ -406,7 +407,7 @@ UI 展示（OverviewFragment）
 | 内存扫描     | `app/src/main/cpp/detector/memory_scanner.cpp` |
 | Hook 检测（内联/PLT/GOT） | `app/src/main/cpp/detector/hook_detector.cpp` |
 | Xposed 路径/fd | `app/src/main/cpp/detector/xposed_detector.cpp` |
-| 环境检测 C++（Magisk/Bootloader/模拟器等） | `app/src/main/cpp/detector/env_detector.cpp` |
+| 环境检测 C++（Magisk/Bootloader/Zygisk/模拟器等） | `app/src/main/cpp/detector/env_detector.cpp` |
 | Syscall 工具 | `app/src/main/cpp/utils/syscall_utils.cpp` |
 | Native 构建（libantidebug + libenvdetect） | `app/src/main/cpp/CMakeLists.txt` |
 | 开发规范     | `.cursor/rules/detection-development.mdc` |
@@ -510,29 +511,15 @@ int get_frida_thread_details(char (*details)[256], int max_details) {
 **文件**：`app/src/main/cpp/detector/memory_scanner.cpp`
 
 - 使用 **syscall** `my_open`/`my_read` 读 `/proc/self/maps`，逐行用 `my_strcasestr` 匹配签名。
+- **增强**：匿名可执行内存（`check_anon_exec_memory`）：解析 maps 行，识别匿名路径（排除 [vdso]/[vvar]/[stack]/[heap]）+ 可执行权限 + 大小 ≥128KB，最多报告 2 条，用于发现 LSPosed 等隐藏 so 后仍保留的可执行代码。
 
 ```cpp
-static const char *FRIDA_SIGNATURES[] = {
-    "frida", "FRIDA", "gum-js", "gumjs", "gthread", "gobject", "gmain", "gdbus",
-    "frida-agent", "frida-gadget", "frida-server", "liblspd.so", "libriru.so",
-    "libxposed", "xposed_art", "XposedBridge", "XposedHelpers", "org.lsposed", nullptr
-};
-
-int get_memory_signature_details(char (*details)[256], int max_details) {
-    int fd = my_open("/proc/self/maps", 0, 0);
-    while ((bytes_read = my_read(fd, buffer, sizeof(buffer))) > 0) {
-        // 按行解析
-        for (int j = 0; FRIDA_SIGNATURES[j] != nullptr; j++) {
-            if (my_strcasestr(line, FRIDA_SIGNATURES[j]) != nullptr) {
-                snprintf(s_findings[s_finding_count], 256, "Found '%s' in: %s", ...);
-                s_finding_count++;
-                break;
-            }
-        }
-    }
-    my_close(fd);
-    return s_finding_count;  // >0 → DANGER
+// 1) 签名匹配
+for (int j = 0; FRIDA_SIGNATURES[j] != nullptr; j++) {
+    if (my_strcasestr(line, FRIDA_SIGNATURES[j]) != nullptr) { ... }
 }
+// 2) 匿名可执行内存（LSPosed 隐藏 so 时仍保留可执行权限）
+check_anon_exec_memory(line, s_findings, MAX_MEMORY_FINDINGS, &s_finding_count, &anon_exec_count);
 ```
 
 ### 12.5 Native 层：Frida 端口与 frida-server 进程

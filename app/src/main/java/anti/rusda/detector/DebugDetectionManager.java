@@ -1,7 +1,6 @@
 package anti.rusda.detector;
 
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.os.Debug;
 
 import java.io.BufferedReader;
@@ -177,15 +176,7 @@ public class DebugDetectionManager {
         );
     }
 
-    /** 包名：Xposed Installer、LSPosed Manager、EdXposed Manager 等 */
-    private static final String[] XPOSED_APP_PACKAGES = {
-            "de.robv.android.xposed.installer",
-            "org.lsposed.manager",
-            "me.weishu.exp",
-            "io.github.lsposed.manager",
-    };
-
-    /** Java 多维度检测 + Native 内联/PLT/路径 检测 */
+    /** Java 多维度检测 + Native 内联/PLT/路径 检测。不检测「应用安装」：安装 LSPosed Manager ≠ 当前进程被 hook。 */
     private DetectionResult checkLibraryIntegrity(Context context) {
         List<String> details = new ArrayList<>();
         int status = DetectionResult.STATUS_NORMAL;
@@ -210,11 +201,11 @@ public class DebugDetectionManager {
             status = DetectionResult.STATUS_DANGER;
         }
 
-        /* 4. Java: 已安装应用列表检测（需 Context） */
-        if (context != null && status != DetectionResult.STATUS_DANGER) {
-            List<String> installed = getInstalledXposedPackages(context);
-            if (!installed.isEmpty()) {
-                details.add("Xposed/LSPosed app installed: " + String.join(", ", installed));
+        /* 4. Java: ClassLoader 实例检测（LSPosed InMemoryClassLoader、LspModuleClassLoader）— 检测当前进程是否被 hook，非「应用安装」 */
+        if (status != DetectionResult.STATUS_DANGER) {
+            List<String> classloaderDetails = detectSuspiciousClassLoaders();
+            if (!classloaderDetails.isEmpty()) {
+                details.addAll(classloaderDetails);
                 status = DetectionResult.STATUS_DANGER;
             }
         }
@@ -301,23 +292,73 @@ public class DebugDetectionManager {
         return false;
     }
 
-    /** 检查是否安装 Xposed Installer / LSPosed / EdXposed 等应用 */
-    private static List<String> getInstalledXposedPackages(Context context) {
-        List<String> found = new ArrayList<>();
-        if (context == null) return found;
-        PackageManager pm = context.getPackageManager();
-        if (pm == null) return found;
+    /**
+     * 检测可疑的 ClassLoader 实例（LSPosed InMemoryClassLoader、LspModuleClassLoader、XposedBridge）。
+     * 需绕过 Hidden API 限制（VMDebug.getInstancesOfClasses）。
+     */
+    private static List<String> detectSuspiciousClassLoaders() {
+        List<String> findings = new ArrayList<>();
         try {
-            for (String pkg : XPOSED_APP_PACKAGES) {
+            bypassHiddenApiRestrictions();
+            Class<?> vmDebugClass = Class.forName("dalvik.system.VMDebug");
+            Method getInstancesMethod = vmDebugClass.getDeclaredMethod(
+                    "getInstancesOfClasses", Class[].class, boolean.class);
+            getInstancesMethod.setAccessible(true);
+
+            Class<?>[] classes = {ClassLoader.class};
+            Object[][] instances = (Object[][]) getInstancesMethod.invoke(null, classes, false);
+
+            if (instances == null || instances.length == 0) return findings;
+
+            for (Object obj : instances[0]) {
+                if (obj == null) continue;
+                ClassLoader cl = (ClassLoader) obj;
+                String clName = cl.getClass().getName();
+
+                if (clName.contains("InMemoryClassLoader")
+                        || clName.contains("LspModuleClassLoader")
+                        || clName.contains("XposedBridge")
+                        || clName.contains("EdXposed")) {
+                    findings.add("Suspicious ClassLoader: " + clName);
+                }
+
                 try {
-                    pm.getPackageInfo(pkg, 0);
-                    found.add(pkg);
-                } catch (PackageManager.NameNotFoundException ignored) {
-                    // 未安装
+                    cl.loadClass("org.lsposed.lspd.core.Main");
+                    findings.add("LSPosed core class loadable via: " + clName);
+                } catch (ClassNotFoundException ignored) {
+                    // 正常
+                }
+
+                ClassLoader parent = cl.getParent();
+                while (parent != null) {
+                    String parentName = parent.getClass().getName();
+                    if (parentName.contains("Xposed") || parentName.contains("Lsp")) {
+                        findings.add("Suspicious parent ClassLoader: " + parentName);
+                        break;
+                    }
+                    parent = parent.getParent();
                 }
             }
-        } catch (Throwable ignored) { }
-        return found;
+        } catch (Throwable ignored) {
+            // Hidden API 限制或异常，返回空列表避免误报
+        }
+        return findings;
+    }
+
+    /** 绕过 Hidden API 限制以访问 VMDebug.getInstancesOfClasses */
+    private static void bypassHiddenApiRestrictions() {
+        try {
+            Class<?> vmRuntimeClass = Class.forName("dalvik.system.VMRuntime");
+            Method getRuntime = vmRuntimeClass.getDeclaredMethod("getRuntime");
+            getRuntime.setAccessible(true);
+            Object runtime = getRuntime.invoke(null);
+            Method setHiddenApiExemptions = vmRuntimeClass.getDeclaredMethod(
+                    "setHiddenApiExemptions", String[].class);
+            setHiddenApiExemptions.setAccessible(true);
+            setHiddenApiExemptions.invoke(runtime, new Object[]{new String[]{"L"}});
+        } catch (Throwable ignored) {
+            // 部分设备可能失败
+        }
     }
 
     private static String readFileContent(String path) throws IOException {

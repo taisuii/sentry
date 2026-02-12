@@ -79,10 +79,12 @@ static const char *SUSPICIOUS_ADB_PATHS[] = {
     nullptr
 };
 
-/* LSPosed paths */
-static const char *LSPOSED_PATHS[] = {
-    "/data/adb/lspd",
-    "/data/adb/modules/zygisk_lsposed",
+/* Zygisk 特征字符串（VMap 内存扫描） */
+static const char *ZYGISK_SIGNATURES[] = {
+    "zygisk_module_entry",
+    "libzygisk.so",
+    "ZygiskModule",
+    "zygisk",
     nullptr
 };
 
@@ -389,13 +391,109 @@ char *env_read_proc_version(void) {
     return buf;
 }
 
-int env_detect_lsposed(char (*details)[256], int max_details) {
+/* memmem 替代：在 haystack 中查找 needle */
+static const void *my_memmem(const void *haystack, size_t haylen, const void *needle, size_t needlen) {
+    if (!haystack || !needle || needlen == 0 || needlen > haylen) return nullptr;
+    const unsigned char *h = (const unsigned char *)haystack;
+    const unsigned char *n = (const unsigned char *)needle;
+    for (size_t i = 0; i <= haylen - needlen; i++) {
+        if (my_memcmp(h + i, n, needlen) == 0) return h + i;
+    }
+    return nullptr;
+}
+
+/* Smaps 检测：可执行段中 Private_Dirty > 0 的可疑注入（正常代码段不应有 Private_Dirty） */
+static int detect_private_dirty_in_smaps(char (*details)[256], int max_details) {
+    int fd = my_open("/proc/self/smaps", 0, 0);  /* O_RDONLY */
+    if (fd < 0) return 0;
+
+    char line[512];
+    bool in_executable = false;
+    char current_mapping[384] = {0};
     int n = 0;
-    for (const char **p = LSPOSED_PATHS; *p && n < max_details; p++) {
-        if (file_exists(*p) || is_dir(*p)) {
-            snprintf(details[n], 256, "LSPosed path: %s", *p);
-            n++;
+    size_t line_pos = 0;
+
+    char buf[256];
+    ssize_t rd;
+    while ((rd = my_read(fd, buf, sizeof(buf))) > 0 && n < max_details) {
+        for (ssize_t i = 0; i < rd && n < max_details; i++) {
+            if (buf[i] == '\n' || line_pos >= sizeof(line) - 1) {
+                line[line_pos] = '\0';
+                line_pos = 0;
+                /* 匹配内存映射行（权限包含 r-xp 或 r-x） */
+                if (my_strstr(line, "r-xp") != nullptr || my_strstr(line, "r-x") != nullptr) {
+                    in_executable = true;
+                    my_strncpy(current_mapping, line, 383);
+                    current_mapping[383] = '\0';
+                }
+                /* 在可执行段中查找 Private_Dirty */
+                if (in_executable && my_strstr(line, "Private_Dirty:") != nullptr) {
+                    int dirty_kb = 0;
+                    sscanf(line, "Private_Dirty: %d kB", &dirty_kb);
+                    if (dirty_kb > 0 && my_strstr(current_mapping, ".so") != nullptr) {
+                        snprintf(details[n], 256, "Smaps: executable .so with Private_Dirty %d kB: %s",
+                                 dirty_kb, current_mapping);
+                        n++;
+                    }
+                    in_executable = false;
+                }
+            } else {
+                line[line_pos++] = buf[i];
+            }
         }
+    }
+    my_close(fd);
+    return n;
+}
+
+/* VMap 检测：扫描 /proc/self/maps 中匿名可执行映射，搜索 Zygisk 特征字符串 */
+static int scan_maps_for_zygisk_signatures(char (*details)[256], int max_details) {
+    int fd = my_open("/proc/self/maps", 0, 0);
+    if (fd < 0) return 0;
+
+    char line[512];
+    int n = 0;
+    size_t line_pos = 0;
+
+    char buf[256];
+    ssize_t rd;
+    while ((rd = my_read(fd, buf, sizeof(buf))) > 0 && n < max_details) {
+        for (ssize_t i = 0; i < rd && n < max_details; i++) {
+            if (buf[i] == '\n' || line_pos >= sizeof(line) - 1) {
+                line[line_pos] = '\0';
+                line_pos = 0;
+                /* 查找 r-x 且 anon 的映射 */
+                if (my_strstr(line, "r-x") != nullptr && my_strstr(line, "anon") != nullptr) {
+                    unsigned long start = 0, end = 0;
+                    sscanf(line, "%lx-%lx", &start, &end);
+                    size_t size = end - start;
+                    if (size >= 64 && size <= 64 * 1024 * 1024) {  /* 64B ~ 64MB 合理范围 */
+                        for (int sig = 0; ZYGISK_SIGNATURES[sig] != nullptr && n < max_details; sig++) {
+                            size_t sig_len = my_strlen(ZYGISK_SIGNATURES[sig]);
+                            if (my_memmem((void *)start, size, ZYGISK_SIGNATURES[sig], sig_len) != nullptr) {
+                                snprintf(details[n], 256, "VMap: Zygisk signature '%s' in anon exec: %s",
+                                         ZYGISK_SIGNATURES[sig], line);
+                                n++;
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else {
+                line[line_pos++] = buf[i];
+            }
+        }
+    }
+    my_close(fd);
+    return n;
+}
+
+int env_detect_zygisk_injection(char (*details)[256], int max_details) {
+    int n = 0;
+    n = detect_private_dirty_in_smaps(details, max_details);
+    if (n < max_details) {
+        int vmap_n = scan_maps_for_zygisk_signatures(details + n, max_details - n);
+        n += vmap_n;
     }
     return n;
 }

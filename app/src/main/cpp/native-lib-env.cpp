@@ -70,15 +70,15 @@ Java_anti_rusda_detector_EnvDetectionManager_nativeDetectBootloader(JNIEnv *env,
     return buildResult(env, status, summary, details, n);
 }
 
-// LSPosed: returns String[] { status, summary, ... }; status 2 = DANGER
+// Zygisk injection: Smaps Private_Dirty + VMap signature scan; returns String[] { status, summary, ... }
 JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_EnvDetectionManager_nativeDetectLsposed(JNIEnv *env, jclass clazz) {
+Java_anti_rusda_detector_EnvDetectionManager_nativeDetectZygiskInjection(JNIEnv *env, jclass clazz) {
     char details[MAX_DETAILS][256];
-    int n = env_detect_lsposed(details, MAX_DETAILS);
+    int n = env_detect_zygisk_injection(details, MAX_DETAILS);
     int status = n > 0 ? 2 : 0;  // 2 = DANGER
     const char *summary = n > 0
-        ? "LSPosed framework detected"
-        : "No LSPosed detected";
+        ? "Zygisk injection detected"
+        : "No Zygisk injection detected";
     return buildResult(env, status, summary, details, n);
 }
 
