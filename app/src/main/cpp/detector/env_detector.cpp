@@ -13,11 +13,6 @@
 #include <sys/system_properties.h>
 #endif
 
-#if defined(__linux__)
-#include <linux/netlink.h>
-#include <linux/rtnetlink.h>
-#endif
-
 #define AF_INET      2
 #define SOCK_STREAM  1
 #define IPPROTO_TCP  6
@@ -193,6 +188,37 @@ static void read_prop(const char *name, char *buf, size_t len) {
     }
 #endif
 }
+
+/* Cross-verify prop value with /proc/cmdline to detect __system_property_get hook */
+static bool extract_cmdline_value(const char *cmdline, size_t len, const char *key, char *out, size_t out_len) {
+    if (!cmdline || !key || !out || out_len < 2) return false;
+    out[0] = '\0';
+    size_t key_len = my_strlen(key);
+    const char *p = cmdline;
+    while (p < cmdline + len) {
+        if (my_strncmp(p, key, key_len) == 0 && p[key_len] == '=') {
+            const char *val = p + key_len + 1;
+            size_t i = 0;
+            while (val + i < cmdline + len && val[i] && val[i] != ' ' && i < out_len - 1) {
+                out[i] = val[i];
+                i++;
+            }
+            out[i] = '\0';
+            return i > 0;
+        }
+        while (p < cmdline + len && *p && *p != ' ') p++;
+        if (p < cmdline + len && *p == ' ') p++;
+    }
+    return false;
+}
+
+static bool verify_prop_vs_cmdline(const char *prop_val, const char *cmdline_key, char *cmdline_buf, size_t cmdline_len) {
+    char cmdline_val[64] = {0};
+    if (!extract_cmdline_value(cmdline_buf, cmdline_len, cmdline_key, cmdline_val, sizeof(cmdline_val)))
+        return true;  /* no cmdline value, assume ok */
+    if (!prop_val || !prop_val[0]) return true;
+    return my_strcmp(prop_val, cmdline_val) == 0;
+}
 #endif
 
 int env_detect_bootloader(int *out_status, char (*details)[256], int max_details) {
@@ -205,12 +231,16 @@ int env_detect_bootloader(int *out_status, char (*details)[256], int max_details
     char verity_mode[256] = {0};
     char warranty_bit[256] = {0};
     char avb_version[256] = {0};
+    char vbmeta_state[256] = {0};
+    char oem_unlock[256] = {0};
 
     read_prop("ro.boot.verifiedbootstate", state, sizeof(state));
     read_prop("ro.boot.flash.locked", flash_locked, sizeof(flash_locked));
     read_prop("ro.boot.veritymode", verity_mode, sizeof(verity_mode));
     read_prop("ro.boot.warranty_bit", warranty_bit, sizeof(warranty_bit));
     read_prop("ro.boot.avb_version", avb_version, sizeof(avb_version));
+    read_prop("ro.boot.vbmeta.device_state", vbmeta_state, sizeof(vbmeta_state));
+    read_prop("sys.oem_unlock_allowed", oem_unlock, sizeof(oem_unlock));
 
     if (n < max_details) {
         snprintf(details[n], 256, "verifiedbootstate: %s", state[0] ? state : "(empty)");
@@ -225,12 +255,26 @@ int env_detect_bootloader(int *out_status, char (*details)[256], int max_details
         n++;
     }
     if (n < max_details) {
+        snprintf(details[n], 256, "vbmeta.device_state: %s", vbmeta_state[0] ? vbmeta_state : "(empty)");
+        n++;
+    }
+    if (n < max_details) {
         snprintf(details[n], 256, "warranty_bit: %s", warranty_bit[0] ? warranty_bit : "(empty)");
         n++;
     }
     if (n < max_details) {
         snprintf(details[n], 256, "avb_version: %s", avb_version[0] ? avb_version : "(empty)");
         n++;
+    }
+
+    /* vbmeta.device_state=unlocked = DANGER */
+    if (my_strstr(vbmeta_state, "unlocked") || my_strstr(vbmeta_state, "Unlocked")) {
+        if (n < max_details) {
+            snprintf(details[n], 256, "VBMeta device state unlocked");
+            n++;
+        }
+        *out_status = 2;  /* DANGER */
+        return n;
     }
 
     /* orange = DANGER */
@@ -261,6 +305,15 @@ int env_detect_bootloader(int *out_status, char (*details)[256], int max_details
         return n;
     }
 
+    /* yellow = WARNING (custom root of trust) */
+    if (my_strstr(state, "yellow") || my_strstr(state, "Yellow")) {
+        if (n < max_details) {
+            snprintf(details[n], 256, "Custom root of trust (yellow state)");
+            n++;
+        }
+        if (*out_status < 1) *out_status = 1;  /* WARNING */
+    }
+
     /* Deep checks: WARNING only (some OEMs do not support these) */
     if (warranty_bit[0] == '1' && warranty_bit[1] == '\0') {
         if (n < max_details) {
@@ -275,6 +328,35 @@ int env_detect_bootloader(int *out_status, char (*details)[256], int max_details
             n++;
         }
         if (*out_status < 1) *out_status = 1;  /* WARNING */
+    }
+    if (oem_unlock[0] == '1' && oem_unlock[1] == '\0') {
+        if (n < max_details) {
+            snprintf(details[n], 256, "OEM unlock allowed in developer options");
+            n++;
+        }
+        if (*out_status < 1) *out_status = 1;  /* WARNING */
+    }
+
+    /* Cross-verify with /proc/cmdline to detect prop hook (Magisk modules may fake __system_property_get) */
+    {
+        char cmdline_buf[2048] = {0};
+        int fd = my_open("/proc/cmdline", 0, 0);
+        if (fd >= 0) {
+            ssize_t rd = my_read(fd, cmdline_buf, sizeof(cmdline_buf) - 1);
+            my_close(fd);
+            if (rd > 0) {
+                cmdline_buf[rd] = '\0';
+                bool ok_state = verify_prop_vs_cmdline(state, "androidboot.verifiedbootstate", cmdline_buf, (size_t)rd);
+                bool ok_flash = verify_prop_vs_cmdline(flash_locked, "androidboot.flash.locked", cmdline_buf, (size_t)rd);
+                if (!ok_state || !ok_flash) {
+                    if (n < max_details) {
+                        snprintf(details[n], 256, "Prop vs cmdline mismatch (possible hook)");
+                        n++;
+                    }
+                    if (*out_status < 1) *out_status = 1;  /* WARNING */
+                }
+            }
+        }
     }
     return n;
 #else
@@ -420,72 +502,3 @@ int env_detect_cgroup(char (*details)[256], int max_details) {
     }
     return n;
 }
-
-#if defined(__linux__) && defined(AF_NETLINK) && defined(NETLINK_ROUTE)
-#ifndef RTMGRP_NEIGH
-#define RTMGRP_NEIGH   4
-#endif
-#ifndef RTMGRP_LINK
-#define RTMGRP_LINK    1
-#endif
-
-/* Netlink 权限检测（与 Hunter 等一致）：
- * 目的：检测 SELinux 是否被修改（root 环境特征）。Android 10+ 通过 SELinux 限制普通 app
- * 对 NETLINK_ROUTE 多播组的 bind；Magisk/KernelSU 可能放宽此限制。
- * 逻辑：若 bind() 成功 → 权限异常 → DANGER；socket 创建失败或 bind 被拒绝 → NORMAL。 */
-int env_detect_netlink_permission(int *out_status, char (*details)[256], int max_details) {
-    *out_status = 0;  /* NORMAL */
-    int n = 0;
-
-    int sock = my_socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
-    if (sock < 0) {
-        int e = errno;
-        if (n < max_details) {
-            if (e == EACCES || e == EPERM) {
-                snprintf(details[n], 256, "Netlink socket denied (EACCES/EPERM) - normal");
-            } else {
-                snprintf(details[n], 256, "Netlink socket failed: errno %d", e);
-            }
-            n++;
-        }
-        return n;
-    }
-
-    struct sockaddr_nl addr;
-    my_memset(&addr, 0, sizeof(addr));
-    addr.nl_family = AF_NETLINK;
-    addr.nl_pid = getpid();
-    addr.nl_groups = RTMGRP_NEIGH | RTMGRP_LINK;  /* 邻居表 + 链路组 */
-
-    if (bind(sock, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) == 0) {
-        /* bind 成功 → 普通 app 本不应有此权限，说明 SELinux 可能被修改（root 环境） */
-        my_close(sock);
-        *out_status = 2;  /* DANGER */
-        if (n < max_details) {
-            snprintf(details[n], 256, "Netlink bind succeeded - SELinux may be modified (root environment)");
-            n++;
-        }
-        return n;
-    }
-
-    /* bind 失败（EPERM/EACCES 等）→ 符合预期，权限正常 */
-    my_close(sock);
-    if (n < max_details) {
-        int e = errno;
-        if (e == EACCES || e == EPERM) {
-            snprintf(details[n], 256, "Netlink bind denied - normal app cannot bind NETLINK_ROUTE (expected)");
-        } else {
-            snprintf(details[n], 256, "Netlink bind failed: errno %d - normal", e);
-        }
-        n++;
-    }
-    return n;
-}
-#else
-int env_detect_netlink_permission(int *out_status, char (*details)[256], int max_details) {
-    (void)details;
-    (void)max_details;
-    *out_status = 0;
-    return 0;
-}
-#endif

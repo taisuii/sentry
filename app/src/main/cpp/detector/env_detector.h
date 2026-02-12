@@ -33,9 +33,6 @@ bool env_check_port_open(int port);
 // Container/cgroup check - returns count, DANGER when > 0
 int env_detect_cgroup(char (*details)[256], int max_details);
 
-// Netlink permission: normal app should get EACCES; if socket+bind succeed → DANGER (out_status 2)
-int env_detect_netlink_permission(int *out_status, char (*details)[256], int max_details);
-
 #ifdef __cplusplus
 }
 #endif

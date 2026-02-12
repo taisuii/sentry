@@ -49,7 +49,6 @@ public class EnvDetectionManager {
     private static native String[] nativeDetectEmulator(String hardware, String product, String device, String brand);
     private static native boolean nativeCheckPort(int port);
     private static native String[] nativeCheckCgroup();
-    private static native String[] nativeDetectNetlinkPermission();
 
     private final Context context;
 
@@ -60,12 +59,9 @@ public class EnvDetectionManager {
     public List<DetectionResult> runAllDetections() {
         List<DetectionResult> results = new ArrayList<>();
         results.add(detectBootloader());
-        results.add(detectKeyAttestation());
         results.add(detectRoot());
         results.add(detectLsposed());
-        results.add(detectPlayIntegrity());
         results.add(detectSuspiciousFiles());
-        results.add(detectNetlinkPermission());
         results.add(detectEmulator());
         results.add(detectKernelPatch());
         results.add(detectAdbEnhanced());
@@ -74,53 +70,62 @@ public class EnvDetectionManager {
         return results;
     }
 
-    private DetectionResult detectBootloader() {
-        return fromNativeResult("Bootloader", nativeDetectBootloader(),
-                "Bootloader locked or unknown", "Bootloader appears locked");
-    }
-
     /**
-     * Key Attestation（密钥认证）：通过 TEE/TrustZone 获取 RootOfTrust，
-     * 检测 verifiedBootKey 全零、deviceLocked=false、verifiedBootState=Unverified 等
-     * （与 Hunter 检测的 boot.img 被修补、bootloader 解锁一致）。
+     * Bootloader 检测：合并 Native 系统属性 + Key Attestation（TEE RootOfTrust）。
+     * 包含 verifiedBootKey、deviceLocked、verifiedBootState、verifiedBootHash 等硬件级证明。
      */
-    private DetectionResult detectKeyAttestation() {
-        String[] raw = KeyAttestationHelper.runAttestationSync();
-        if (raw == null || raw.length < 2) {
-            return new DetectionResult("Key Attestation (Boot)", "Check failed", DetectionResult.STATUS_WARNING, 15);
+    private DetectionResult detectBootloader() {
+        /* 1. Native 层：AVB 系统属性（verifiedbootstate、flash.locked、veritymode、avb_version 等） */
+        String[] nativeRaw = nativeDetectBootloader();
+        int statusNat = DetectionResult.STATUS_NORMAL;
+        List<String> details = new ArrayList<>();
+        details.add("═══ AVB (System Properties) ═══");
+        if (nativeRaw != null && nativeRaw.length >= 2) {
+            try {
+                statusNat = Integer.parseInt(nativeRaw[0]);
+            } catch (NumberFormatException ignored) { }
+            if (nativeRaw.length > 2) {
+                details.addAll(Arrays.asList(Arrays.copyOfRange(nativeRaw, 2, nativeRaw.length)));
+            } else {
+                details.add("verifiedbootstate, flash.locked, veritymode, avb_version, etc.");
+            }
+        } else {
+            details.add("Native bootloader check unavailable");
         }
-        int status = DetectionResult.STATUS_NORMAL;
-        try {
-            status = Integer.parseInt(raw[0]);
-        } catch (NumberFormatException ignored) {
-        }
-        String summary = raw[1];
-        List<String> details = raw.length > 2
-                ? Arrays.asList(Arrays.copyOfRange(raw, 2, raw.length))
-                : Collections.emptyList();
-        DetectionResult result = new DetectionResult("Key Attestation (Boot)", summary, status, 15);
-        result.setDetails(details.isEmpty()
-                ? Collections.singletonList("RootOfTrust from TEE/KeyStore attestation")
-                : details);
-        return result;
-    }
 
-    private DetectionResult detectPlayIntegrity() {
-        PlayIntegrityHelper helper = new PlayIntegrityHelper(context, null);
-        String[] raw = helper.runDetectionSync();
-        if (raw == null || raw.length < 2) {
-            return new DetectionResult("Play Integrity", "Check failed", DetectionResult.STATUS_WARNING);
+        /* 2. Key Attestation：TEE RootOfTrust（deviceLocked、verifiedBootState、verifiedBootKey、verifiedBootHash） */
+        String[] attestRaw = KeyAttestationHelper.runAttestationSync();
+        int statusAtt = DetectionResult.STATUS_NORMAL;
+        if (attestRaw != null && attestRaw.length >= 2) {
+            try {
+                statusAtt = Integer.parseInt(attestRaw[0]);
+            } catch (NumberFormatException ignored) { }
+            details.add("═══ Key Attestation (TEE RootOfTrust) ═══");
+            if (attestRaw.length > 2) {
+                details.addAll(Arrays.asList(Arrays.copyOfRange(attestRaw, 2, attestRaw.length)));
+            } else {
+                details.add(attestRaw[1]);
+            }
+        } else {
+            details.add("═══ Key Attestation (TEE RootOfTrust) ═══");
+            details.add("Key attestation unavailable or failed");
+            statusAtt = DetectionResult.STATUS_WARNING;
         }
-        int status = DetectionResult.STATUS_NORMAL;
-        try {
-            status = Integer.parseInt(raw[0]);
-        } catch (NumberFormatException ignored) { }
-        String summary = raw.length > 1 ? raw[1] : "Play Integrity check";
-        List<String> details = raw.length > 2
-                ? Collections.singletonList(raw[2])
-                : Collections.emptyList();
-        DetectionResult result = new DetectionResult("Play Integrity", summary, status, 15);
-        result.setDetails(details);
+
+        /* 取最严重状态：DANGER > WARNING > NORMAL */
+        int status = Math.max(statusNat, statusAtt);
+
+        String summary;
+        if (status == DetectionResult.STATUS_DANGER) {
+            summary = "Bootloader unlocked or boot may be patched";
+        } else if (status == DetectionResult.STATUS_WARNING) {
+            summary = "Bootloader state uncertain or self-signed";
+        } else {
+            summary = "Bootloader locked, boot verified";
+        }
+
+        DetectionResult result = new DetectionResult("Bootloader", summary, status, 15);
+        result.setDetails(details.isEmpty() ? Collections.singletonList("No issues detected") : details);
         return result;
     }
 
@@ -270,7 +275,7 @@ public class EnvDetectionManager {
         String summary = status == DetectionResult.STATUS_NORMAL
                 ? "Kernel patch level acceptable"
                 : "Kernel patch outdated (12+ months) - warning only, not indicative of gray market";
-        return new DetectionResult("Kernel Patch", summary, status, details);
+        return new DetectionResult("Kernel Patch", summary, status, 10, details, true);  // warnOnly：过期仅警告不扣分
     }
 
     private DetectionResult detectAdbEnhanced() {
@@ -303,15 +308,6 @@ public class EnvDetectionManager {
     private DetectionResult detectSuspiciousFiles() {
         return fromNativeResult("Suspicious Files", nativeDetectSuspiciousFiles(),
                 "No suspicious files detected", "No Frida-related or debug files found");
-    }
-
-    /**
-     * Netlink 权限检测：普通应用在 Android 上创建/绑定 netlink 套接字会被 SELinux 拒绝 (EACCES)。
-     * 若创建+bind 成功，说明环境可能为 permissive 或已 root，与其它检测 App 的「netlink Find Permission」一致。
-     */
-    private DetectionResult detectNetlinkPermission() {
-        return fromNativeResult("Netlink Permission", nativeDetectNetlinkPermission(),
-                "Netlink access denied (normal)", "Netlink find permission");
     }
 
     private DetectionResult detectEmulator() {

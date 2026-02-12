@@ -110,18 +110,6 @@ Java_anti_rusda_detector_EnvDetectionManager_nativeCheckCgroup(JNIEnv *env, jcla
     return buildResult(env, status, n > 0 ? "Container/virtualization detected" : "No container detected", details, n > 0 ? n : 0);
 }
 
-// Netlink permission: normal app gets EACCES; if socket+bind succeed → DANGER
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_EnvDetectionManager_nativeDetectNetlinkPermission(JNIEnv *env, jclass clazz) {
-    char details[MAX_DETAILS][256];
-    int status;
-    int n = env_detect_netlink_permission(&status, details, MAX_DETAILS);
-    const char *summary = (status == 2)
-        ? "Netlink permission available (abnormal for app)"
-        : "Netlink access denied (normal)";
-    return buildResult(env, status, summary, details, n);
-}
-
 // Emulator: Java passes Build.*; native checks files + indicators
 JNIEXPORT jobjectArray JNICALL
 Java_anti_rusda_detector_EnvDetectionManager_nativeDetectEmulator(JNIEnv *env, jclass clazz,
