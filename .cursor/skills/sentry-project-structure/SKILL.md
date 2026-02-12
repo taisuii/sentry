@@ -5,7 +5,7 @@ description: Documents the Sentry Android security detection app structure (Java
 
 # Sentry 项目结构
 
-Android 安全检测应用，Java + Native (C++) 双引擎，包名 `anti.rusda`。**两个 Native 库**：`libantidebug.so`（调试检测）、`libenvdetect.so`（环境检测）。主界面为 **3 个 Tab**：概览（设备信息+分数）、调试检测、环境检测。调试检测现为 **9 项**，含 **Maps 二次检测 (Java exec)**（`Runtime.exec("cat /proc/pid/maps")` 与 Native syscall 双通道）、**Dirty Page / Memory Injection**（脏页/内存注入：Smaps Private_Dirty + VMap + Pagemap bit 55，实现位于 libenvdetect，由 DebugDetectionManager 加载 envdetect 后调用）。环境检测含 **Bootloader**（Native 系统属性 + Key Attestation TEE RootOfTrust）、**Dangerous Apps**（多渠道：meta-data、APK assets/xposed_init、modules.list，warnOnly）。**LSPosed Hook** 已合并至调试检测的 Xposed / Hook Framework。
+Android 安全检测应用，Java + Native (C++) 双引擎，包名 `anti.rusda`。**两个 Native 库**：`libantidebug.so`（调试检测）、`libenvdetect.so`（环境检测）。主界面为 **3 个 Tab**：概览（设备信息+分数）、调试检测、环境检测。调试检测现为 **8 项**，含 **Maps 二次检测 (Java exec)**（`Runtime.exec("cat /proc/pid/maps")` 与 Native syscall 双通道）、**Dirty Page / Memory Injection**（脏页/内存注入：Smaps Private_Dirty + VMap + Pagemap bit 55，实现位于 libenvdetect，由 DebugDetectionManager 加载 envdetect 后调用）。环境检测含 **Bootloader**（Native 系统属性 + Key Attestation TEE RootOfTrust）、**Dangerous Apps**（多渠道：meta-data、APK assets/xposed_init、modules.list，warnOnly）。**LSPosed Hook** 已合并至调试检测的 Xposed / Hook Framework。
 
 ## 目录树
 

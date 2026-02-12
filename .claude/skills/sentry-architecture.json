@@ -78,7 +78,6 @@
             {"id": 1, "name": "Frida Threads", "method": "detectFridaThreads", "status": "DANGER"},
             {"id": 2, "name": "Frida Ports", "method": "detectFridaPorts", "status": "DANGER"},
             {"id": 3, "name": "Memory Signatures", "method": "detectMemorySignatures", "status": "DANGER"},
-            {"id": 4, "name": "Named Pipes", "method": "detectNamedPipes", "status": "DANGER"},
             {"id": 5, "name": "Debug Mode", "method": "detectDebugMode", "status": "WARNING"},
             {"id": 6, "name": "Root Detection", "method": "detectRoot", "status": "WARNING"},
             {"id": 7, "name": "Suspicious Files", "method": "detectSuspiciousFiles", "status": "DANGER"},

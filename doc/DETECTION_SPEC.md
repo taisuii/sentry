@@ -3,22 +3,22 @@
 本文档详细描述 Sentry 安全检测应用中的各项检测、评分机制、实现方式以及设计目的。
 
 > **维护要求**：本规范应与代码实现保持同步。根据 `.cursor/rules/modify-after-structure.mdc`，重大变更（如新增/删除检测项、修改实现层或逻辑等）完成后，须同步更新本文档及 `.cursor/skills/sentry-project-structure/SKILL.md`。  
-> **一致性**：本文档已与当前代码库对齐（检测项 9+9=18、权重、JNI/Native 接口、文件路径）。
+> **一致性**：本文档已与当前代码库对齐（检测项 8+9=17、权重、JNI/Native 接口、文件路径）。
 
 ---
 
 ## 一、检测总览
 
-Sentry 提供 **18 项** 安全检测，分为两类：
+Sentry 提供 **17 项** 安全检测，分为两类：
 
 | 类别       | 数量 | 管理类                     | 展示位置   |
 |------------|------|----------------------------|------------|
-| 调试检测   | 9    | `DebugDetectionManager`    | 调试检测 Tab |
+| 调试检测   | 8    | `DebugDetectionManager`    | 调试检测 Tab |
 | 环境检测   | 9    | `EnvDetectionManager`     | 环境检测 Tab |
 
 ### 1.1 检测项与权重一览表
 
-**执行顺序**：与 `runAllDetections()` 一致。调试检测 1→9 由 `DebugDetectionManager` 顺序执行；环境检测 10→18 由 `EnvDetectionManager` 顺序执行。`DetectionManager.runAllDetections()` 先执行全部调试 9 项、再执行全部环境 9 项（顺序执行，非并行）。
+**执行顺序**：与 `runAllDetections()` 一致。调试检测 1→8 由 `DebugDetectionManager` 顺序执行；环境检测 9→17 由 `EnvDetectionManager` 顺序执行。`DetectionManager.runAllDetections()` 先执行全部调试 8 项、再执行全部环境 9 项（顺序执行，非并行）。
 
 | 序号 | 检测项标题 | 类别 | maxScore | warnOnly | 说明 |
 |------|------------|------|----------|----------|------|
@@ -26,24 +26,23 @@ Sentry 提供 **18 项** 安全检测，分为两类：
 | 2 | Frida Ports | 调试 | 10 | — | 检测 Frida 默认端口 |
 | 3 | Memory Signatures | 调试 | 10 | — | 内存映射 Frida/LSPosed 签名（Native syscall 读 maps） |
 | 4 | Maps 二次检测 (Java exec) | 调试 | 10 | — | 通过 Runtime.exec 读 /proc/pid/maps 二次扫描，与 Native 双通道 |
-| 5 | Named Pipes | 调试 | 10 | — | Unix 域套接字/管道名 |
-| 6 | Ptrace / IDA Attach | 调试 | 10 | — | TracerPid 检测 |
-| 7 | Debugger Attached | 调试 | 10 | — | Debug.isDebuggerConnected() |
-| 8 | Xposed / Hook Framework | 调试 | 10 | — | Xposed/LSPosed + Native Hook |
-| 9 | Dirty Page / Memory Injection | 调试 | 10 | — | Smaps Private_Dirty + VMap + Pagemap bit 55 脏页/内存注入特征 |
-| 10 | Bootloader | 环境 | **15** | — | 启动验证/锁定状态 + TEE RootOfTrust |
-| 11 | Magisk / Root | 环境 | **12** | — | Magisk/root 环境 |
-| 12 | Dangerous Apps | 环境 | **5** | **是** | 多渠道检测 Xposed 模块（meta-data、APK assets/xposed_init、modules.list）；仅警告不扣分 |
-| 13 | Suspicious Files | 环境 | 10 | — | Frida/Magisk 等可疑路径 |
-| 14 | Emulator | 环境 | 10 | — | 模拟器特征 |
-| 15 | Kernel Patch | 环境 | 10 | **是** | 安全补丁陈旧度；过期仅警告不扣分 |
-| 16 | ADB Debug | 环境 | **5** | **是** | 仅警告不扣分 |
-| 17 | Multi-instance | 环境 | **5** | — | 多开/分身环境 |
-| 18 | Container / Virtualization | 环境 | **8** | — | 容器/虚拟化 |
+| 5 | Ptrace / IDA Attach | 调试 | 10 | — | TracerPid 检测 |
+| 6 | Debugger Attached | 调试 | 10 | — | Debug.isDebuggerConnected() |
+| 7 | Xposed / Hook Framework | 调试 | 10 | — | Xposed/LSPosed + Native Hook |
+| 8 | Dirty Page / Memory Injection | 调试 | 10 | — | Smaps Private_Dirty + VMap + Pagemap bit 55 脏页/内存注入特征 |
+| 9 | Bootloader | 环境 | **15** | — | 启动验证/锁定状态 + TEE RootOfTrust |
+| 10 | Magisk / Root | 环境 | **12** | — | Magisk/root 环境 |
+| 11 | Dangerous Apps | 环境 | **5** | **是** | 多渠道检测 Xposed 模块（meta-data、APK assets/xposed_init、modules.list）；仅警告不扣分 |
+| 12 | Suspicious Files | 环境 | 10 | — | Frida/Magisk 等可疑路径 |
+| 13 | Emulator | 环境 | 10 | — | 模拟器特征 |
+| 14 | Kernel Patch | 环境 | 10 | **是** | 安全补丁陈旧度；过期仅警告不扣分 |
+| 15 | ADB Debug | 环境 | **5** | **是** | 仅警告不扣分 |
+| 16 | Multi-instance | 环境 | **5** | — | 多开/分身环境 |
+| 17 | Container / Virtualization | 环境 | **8** | — | 容器/虚拟化 |
 
 ---
 
-## 二、调试检测（9 项）
+## 二、调试检测（8 项）
 
 ### 2.1 Frida Threads
 
@@ -62,7 +61,7 @@ Sentry 提供 **18 项** 安全检测，分为两类：
 | **实现层** | Native（C++，`port_scanner.cpp`） |
 | **实现** | 1) 使用 **syscall**（`my_socket`/`my_connect`）连接本地 `127.0.0.1` 端口 **27042**（仅检测此端口）；2) 读取 **`/proc/net/tcp`**（系统级 TCP 表），仅匹配状态 **0A(LISTEN)** 行中本地端口为 `:699A`（27042，边界匹配）；3) **Frida 16+ 随机端口**：遍历 `/proc/<pid>/comm`，若进程名包含 `frida-server`，则读取该进程的 `/proc/<pid>/net/tcp`，若存在状态 `0A`（LISTEN），判为 Frida Server 监听（覆盖 `-l 0.0.0.0:0` 随机端口场景）；4) **Frida 进程扫描**：遍历 `/proc/<pid>/comm`，若进程名包含 `re.frida`（匹配 `re.frida.helper`、`re.frida.server` 等）或 `frida-server`，判为 Frida 进程存在（Frida 运行时会留下如 `re.frida.helper` 进程） |
 | **状态** | 任意经典端口可连接、net/tcp 发现经典端口、frida-server 进程存在 LISTEN 套接字、或发现 Frida 相关进程（如 re.frida.helper）→ `DANGER`；否则 `NORMAL` |
-| **设计说明** | 使用 syscall 绕过 libc；移除 5000/8080 以降低误报；通过进程名 + net/tcp 覆盖 Frida 16+ 随机端口；Frida 进程扫描覆盖 gadget 注入时产生的 `re.frida.helper` 等进程 |
+| **设计说明** | 使用 syscall 绕过 libc；仅检测默认端口 27042（不检测 5000/8080 等易误报端口）；通过进程名 + net/tcp 覆盖 Frida 16+ 随机端口；Frida 进程扫描覆盖 gadget 注入时产生的 `re.frida.helper` 等进程 |
 
 ### 2.3 Memory Signatures
 
@@ -84,16 +83,7 @@ Sentry 提供 **18 项** 安全检测，分为两类：
 | **状态** | 发现任一行包含可疑签名 → `DANGER`；未发现 → `NORMAL`；无法执行/读取 → `WARNING` |
 | **设计说明** | 检测两次 maps：一次 Native syscall，一次 Java exec，降低单一通道被 hook 导致漏检的概率。代码/UI 中该项标题为 `Maps detection (Java exec)` |
 
-### 2.5 Named Pipes
-
-| 属性     | 说明 |
-|----------|------|
-| **目的** | 检测 Frida 使用的 Unix 域套接字/管道名 |
-| **实现层** | Java |
-| **实现** | 读取 `/proc/self/net/unix`，搜索包含 `frida`、`gmain`、`gdbus` 的行 |
-| **状态** | 发现 → `DANGER`；未发现 → `NORMAL` |
-
-### 2.6 Ptrace / IDA Attach
+### 2.5 Ptrace / IDA Attach
 
 | 属性     | 说明 |
 |----------|------|
@@ -102,7 +92,7 @@ Sentry 提供 **18 项** 安全检测，分为两类：
 | **实现** | 读取 `/proc/self/status`，解析 `TracerPid:` 字段；非 0 表示被附加 |
 | **状态** | `TracerPid != 0` → `DANGER`；否则 `NORMAL` |
 
-### 2.7 Debugger Attached
+### 2.6 Debugger Attached
 
 | 属性     | 说明 |
 |----------|------|
@@ -111,7 +101,7 @@ Sentry 提供 **18 项** 安全检测，分为两类：
 | **实现** | 调用 `Debug.isDebuggerConnected()` |
 | **状态** | 已连接 → `DANGER`；否则 `NORMAL` |
 
-### 2.8 Xposed / Hook Framework
+### 2.7 Xposed / Hook Framework
 
 | 属性     | 说明 |
 |----------|------|
@@ -120,7 +110,7 @@ Sentry 提供 **18 项** 安全检测，分为两类：
 | **实现** | 1) **Java**（检测**当前进程**是否被 hook，非「应用安装」）：① `Class.forName("de.robv.android.xposed.XposedBridge")`；② **堆栈检测**：自造异常，检查堆栈中是否包含 `XposedBridge`/`XposedHelpers`/`org.lsposed`；③ **反射检测**：反射查找 `XposedHelpers`/`XposedBridge` 的 `findAndHookMethod`、`hookAllMethods` 等关键方法；④ **ClassLoader 实例检测**：`VMDebug.getInstancesOfClasses` 遍历 ClassLoader，检查 `InMemoryClassLoader`、`LspModuleClassLoader`、`XposedBridge`、`EdXposed`，尝试加载 `org.lsposed.lspd.core.Main`，检查 parent 链含 Xposed/Lsp（需绕过 Hidden API）。2) **Native**：⑤ **特征路径与 fd**（`xposed_detector.cpp`，syscall）：检测 Xposed 路径、**LSPosed 路径**（`/data/adb/lspd`、`/data/adb/modules/zygisk_lsposed`）、**Riru 路径**、**ro.dalvik.vm.native.bridge** 可疑值、**Zygisk fexecve**（`/proc/self/exe` 为 `/dev/fd/X`）、**LD_PRELOAD/MAGISKTMP** 环境变量、`/proc/self/fd` 中 `linjector`/`lsposed`/`riru`；⑥ **内存映射**（`memory_scanner.cpp`）：`/proc/self/maps` 中匹配 `libxposed`、`XposedBridge`、`XposedHelpers`、`org.lsposed`、`zygisk_lsposed`、`zygisk` 等签名；⑦ 内联 Hook、PLT/GOT、libc 完整性（`hook_detector.cpp`）；⑧ **LR 寄存器检测**（`hook_detector.cpp`，ARM64）：在 `detect_hooks()` 入口读取 LR(x30)，若返回地址不在本模块（libantidebug.so）范围内则判为 trampoline 式 inline hook（Frida/Dobby/xhook 等），使用 syscall 解析 `/proc/self/maps` 获取模块边界。 |
 | **状态** | 任意一项命中 → `DANGER`；否则 `NORMAL` |
 
-### 2.9 Dirty Page / Memory Injection（脏页/内存注入）
+### 2.8 Dirty Page / Memory Injection（脏页/内存注入）
 
 | 属性     | 说明 |
 |----------|------|
@@ -355,7 +345,6 @@ UI 展示（OverviewFragment）
 | detectFridaPorts | `nativeGetFridaPortScanResult` | `port_scanner` |
 | detectMemorySignatures | `nativeGetMemorySignatureResult` | `memory_scanner` |
 | detectMapsViaExec（Maps 二次检测） | —（Java exec） | 读 `/proc/pid/maps` 二次检测；UI 标题 `Maps detection (Java exec)` |
-| detectNamedPipes | — | Java 读 `/proc/self/net/unix` |
 | detectPtraceStatus | — | Java 读 `/proc/self/status` (TracerPid) |
 | detectDebuggerAttached | — | Java `Debug.isDebuggerConnected()` |
 | checkLibraryIntegrity (Xposed) | `nativeDetectHook`、`nativeDetectXposedPaths` | `hook_detector`、`xposed_detector`、`memory_scanner` |
@@ -399,7 +388,7 @@ UI 展示（OverviewFragment）
 
 | 目的             | 对应检测项 |
 |------------------|------------|
-| 防 Frida 注入    | Frida Threads、Frida Ports、Memory Signatures、Maps 二次检测 (Java exec)、Named Pipes、Suspicious Files、Dirty Page / Memory Injection（脏页 + Pagemap soft-dirty） |
+| 防 Frida 注入    | Frida Threads、Frida Ports、Memory Signatures、Maps 二次检测 (Java exec)、Suspicious Files、Dirty Page / Memory Injection（脏页 + Pagemap soft-dirty） |
 | 防调试器附加     | Ptrace、Debugger Attached |
 | 防 Root/Hook     | Magisk/Root、Dirty Page / Memory Injection、Xposed（含 LSPosed 路径/env）、Dangerous Apps、Bootloader（含 Key Attestation） |
 | 设备完整性       | Bootloader（含 Key Attestation）、Kernel Patch |
@@ -465,7 +454,7 @@ public int getEarnedScore() {
 
 **文件**：`app/src/main/java/anti/rusda/detector/DebugDetectionManager.java`
 
-- 一次执行 **9 项**检测；敏感项通过 JNI 调用 Native（syscall），避免 Java 层被 Hook。`ensureNativeLoaded()` 会先加载 `libantidebug` 与 `libenvdetect`（Dirty Page 检测在 libenvdetect 中实现）。
+- 一次执行 **8 项**检测；敏感项通过 JNI 调用 Native（syscall），避免 Java 层被 Hook。`ensureNativeLoaded()` 会先加载 `libantidebug` 与 `libenvdetect`（Dirty Page 检测在 libenvdetect 中实现）。
 
 ```java
 public List<DetectionResult> runAllDetections(Context context) {
@@ -475,7 +464,6 @@ public List<DetectionResult> runAllDetections(Context context) {
     results.add(detectFridaPorts());             // Native (port_scanner)
     results.add(detectMemorySignatures(context)); // Native (memory_scanner)，advancedChecks 来自设置
     results.add(detectMapsViaExec());             // Java exec 读 /proc/pid/maps 二次检测
-    results.add(detectNamedPipes());             // Java 读 /proc/self/net/unix
     results.add(detectPtraceStatus());           // Java 读 /proc/self/status (TracerPid)
     results.add(detectDebuggerAttached());       // Java Debug.isDebuggerConnected()
     results.add(checkLibraryIntegrity(context)); // Java + Native (Xposed/Hook)

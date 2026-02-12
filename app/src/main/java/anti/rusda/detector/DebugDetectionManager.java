@@ -56,7 +56,6 @@ public class DebugDetectionManager {
         results.add(detectFridaPorts());
         results.add(detectMemorySignatures(context));
         results.add(detectMapsViaExec());
-        results.add(detectNamedPipes());
         results.add(detectPtraceStatus());
         results.add(detectDebuggerAttached());
         results.add(checkLibraryIntegrity(context));
@@ -206,29 +205,6 @@ public class DebugDetectionManager {
                 ? "Maps clean (Java exec)"
                 : (details.size() + " suspicious mapping(s) in maps (Java exec)");
         return new DetectionResult("Maps detection (Java exec)", summary, status, details);
-    }
-
-    private DetectionResult detectNamedPipes() {
-        List<String> pipes = new ArrayList<>();
-        int status = DetectionResult.STATUS_NORMAL;
-        try {
-            String unixContent = readFileContent("/proc/self/net/unix");
-            for (String line : unixContent.split("\\n")) {
-                if (line.toLowerCase().contains("frida") || line.toLowerCase().contains("gmain") || line.toLowerCase().contains("gdbus")) {
-                    pipes.add(line.trim());
-                    status = DetectionResult.STATUS_DANGER;
-                }
-            }
-        } catch (Exception e) {
-            pipes.add("Error checking pipes: " + e.getMessage());
-        }
-        DetectionResult result = new DetectionResult(
-                "Named Pipes",
-                pipes.isEmpty() ? "No suspicious pipes detected" : pipes.size() + " suspicious pipe(s) detected",
-                status
-        );
-        result.setDetails(pipes.isEmpty() ? Collections.singletonList("No Frida-related named pipes found") : pipes);
-        return result;
     }
 
     private DetectionResult detectPtraceStatus() {

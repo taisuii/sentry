@@ -107,7 +107,7 @@ static bool detect_frida_server_listening(void) {
     return false;
 }
 
-// 仅检测 Frida 默认端口 27042；Frida 16+ 随机端口靠 frida-server 进程名 + net/tcp 检测
+// 仅检测 Frida 默认端口 27042，不检测 5000/8080 等易误报端口
 static const int FRIDA_PORTS[] = { 27042, 0 };
 
 // Last scan result for JNI to build DetectionResult (title/summary/details)

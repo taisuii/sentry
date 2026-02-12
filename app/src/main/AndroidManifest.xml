@@ -2,9 +2,39 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- ========== 应用列表与包信息 ========== -->
     <!-- Android 11+ 获取完整应用列表，用于危险应用检测 -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+
+    <!-- ========== 网络 ========== -->
+    <!-- 本地端口检测（Frida 27042）：connect(127.0.0.1) 需此权限，否则会误判为未检测到 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 获取网络状态（可选：用于设备信息、ADB 检测等上下文） -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 获取 Wi-Fi 状态（可选：设备信息、ADB over WiFi 相关） -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <!-- ========== 存储与文件 ========== -->
+    <!-- 读外部存储（若需从存储读取/列举文件时使用；Native 读 /proc、/sys 不依赖此权限） -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Android 13+ 读媒体/文件（替代 READ_EXTERNAL_STORAGE） -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- 写外部存储（API 28 及以下；更高版本使用应用专属目录或 Scoped Storage） -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"
+        tools:ignore="ScopedStorage" />
+
+    <!-- ========== 其它常用 ========== -->
+    <!-- 开机完成广播（若后续需要开机自检或后台扫描时可用） -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 前台服务（若后续需要常驻扫描服务时可用） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- 振动（若 UI 需要振动反馈） -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".SentryApp"
