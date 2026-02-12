@@ -56,11 +56,11 @@ Sentry 提供 **18 项** 安全检测，分为两类：
 
 | 属性     | 说明 |
 |----------|------|
-| **目的** | 检测 Frida 默认监听端口及 Frida Server 进程，防止 Frida 远程附加 |
+| **目的** | 检测 Frida 默认监听端口、Frida Server 进程及 Frida 相关进程（如 `re.frida.helper`），防止 Frida 远程附加或注入 |
 | **实现层** | Native（C++，`port_scanner.cpp`） |
-| **实现** | 1) 使用 **syscall**（`my_socket`/`my_connect`）连接本地 `127.0.0.1` 端口 **27042**（仅检测此端口）；2) 读取 **`/proc/net/tcp`**（系统级 TCP 表），仅匹配状态 **0A(LISTEN)** 行中本地端口为 `:699A`（27042，边界匹配）；3) **Frida 16+ 随机端口**：遍历 `/proc/<pid>/comm`，若进程名包含 `frida-server`，则读取该进程的 `/proc/<pid>/net/tcp`，若存在状态 `0A`（LISTEN），判为 Frida Server 监听（覆盖 `-l 0.0.0.0:0` 随机端口场景） |
-| **状态** | 任意经典端口可连接、net/tcp 发现经典端口、或 frida-server 进程存在 LISTEN 套接字 → `DANGER`；否则 `NORMAL` |
-| **设计说明** | 使用 syscall 绕过 libc；移除 5000/8080 以降低误报；通过进程名 + net/tcp 覆盖 Frida 16+ 随机端口 |
+| **实现** | 1) 使用 **syscall**（`my_socket`/`my_connect`）连接本地 `127.0.0.1` 端口 **27042**（仅检测此端口）；2) 读取 **`/proc/net/tcp`**（系统级 TCP 表），仅匹配状态 **0A(LISTEN)** 行中本地端口为 `:699A`（27042，边界匹配）；3) **Frida 16+ 随机端口**：遍历 `/proc/<pid>/comm`，若进程名包含 `frida-server`，则读取该进程的 `/proc/<pid>/net/tcp`，若存在状态 `0A`（LISTEN），判为 Frida Server 监听（覆盖 `-l 0.0.0.0:0` 随机端口场景）；4) **Frida 进程扫描**：遍历 `/proc/<pid>/comm`，若进程名包含 `re.frida`（匹配 `re.frida.helper`、`re.frida.server` 等）或 `frida-server`，判为 Frida 进程存在（Frida 运行时会留下如 `re.frida.helper` 进程） |
+| **状态** | 任意经典端口可连接、net/tcp 发现经典端口、frida-server 进程存在 LISTEN 套接字、或发现 Frida 相关进程（如 re.frida.helper）→ `DANGER`；否则 `NORMAL` |
+| **设计说明** | 使用 syscall 绕过 libc；移除 5000/8080 以降低误报；通过进程名 + net/tcp 覆盖 Frida 16+ 随机端口；Frida 进程扫描覆盖 gadget 注入时产生的 `re.frida.helper` 等进程 |
 
 ### 2.3 Memory Signatures
 
@@ -378,7 +378,7 @@ UI 展示（OverviewFragment）
 | 检测项 | 绕过难度 | 原因 |
 |--------|---------|------|
 | Bootloader (Key Attestation) | ⭐⭐⭐⭐⭐ | TEE/KeyStore 签发，RootOfTrust 不可伪造 |
-| Frida Ports (Native) | ⭐⭐⭐⭐ | Syscall 实现，难 Hook |
+| Frida Ports + Processes (Native) | ⭐⭐⭐⭐ | Syscall 实现，难 Hook；进程扫描覆盖 re.frida.helper |
 | Memory Signatures | ⭐⭐⭐⭐ | Syscall + 自实现字符串函数 |
 | Frida Threads (Native) | ⭐⭐⭐⭐ | Syscall，难 Hook |
 | Magisk/Root (Native) | ⭐⭐⭐⭐ | Syscall 文件检测 |
@@ -540,21 +540,22 @@ check_anon_exec_memory(line, s_findings, MAX_MEMORY_FINDINGS, &s_finding_count, 
 
 - 通过 `Runtime.getRuntime().exec("cat /proc/" + Process.myPid() + "/maps")` 读取 maps，`BufferedReader` 逐行与 `MAPS_SUSPICIOUS_SIGNATURES` 做不区分大小写匹配，与 Native 签名列表一致，形成双通道检测。
 
-### 12.5 Native 层：Frida 端口与 frida-server 进程
+### 12.5 Native 层：Frida 端口、frida-server 进程与 Frida 进程扫描
 
 **文件**：`app/src/main/cpp/detector/port_scanner.cpp`
 
 - 仅检测端口 **27042**：`my_socket`/`my_connect` 连接 127.0.0.1:27042；并读 **`/proc/net/tcp`**，逐行仅匹配状态 **0A(LISTEN)** 且本地端口为 `:699A `（边界匹配）。
 - Frida 16+ 随机端口：遍历 `/proc/<pid>/comm` 找进程名含 `frida-server`，再读该进程 `/proc/<pid>/net/tcp`，若存在 ` 0A `（LISTEN）则判为 Frida Server 监听。
+- **Frida 进程扫描**：`detect_frida_processes()` 遍历 `/proc/<pid>/comm`，若进程名包含 `re.frida`（匹配 `re.frida.helper`、`re.frida.server` 等）或 `frida-server`，记录详情（若 frida-server 已由 LISTEN 检测报告则不再重复）。
 
 ```cpp
 // 1) connect 检测 27042
 // 2) 读 /proc/net/tcp，仅 LISTEN(0A) 行且本地端口 :699A 边界匹配
 // 3) detect_frida_server_listening() → frida-server 进程 + LISTEN
+// 4) detect_frida_processes() → re.frida.helper、re.frida.server 等进程
 bool detect_frida_ports(void) {
-    for (... FRIDA_PORTS { 27042 } ...) if (is_port_open(...)) { ... }
-    int fd = my_open("/proc/net/tcp", ...);  // 仅匹配 ":699A "
-    if (detect_frida_server_listening()) { ... s_open_ports[...] = 0; }
+    ...
+    detect_frida_processes();  // 扫描 /proc/*/comm 检测 Frida 进程
     return found;
 }
 ```

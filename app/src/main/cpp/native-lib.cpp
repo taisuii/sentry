@@ -103,10 +103,13 @@ Java_anti_rusda_detector_DebugDetectionManager_nativeDetectFridaThreads(JNIEnv *
 }
 
 // Port scan result for Java: String[] { status, summary, detail0, detail1, ... }
+// Includes Frida ports + frida-server process + Frida processes (re.frida.helper etc.)
 JNIEXPORT jobjectArray JNICALL
 Java_anti_rusda_detector_DebugDetectionManager_nativeGetFridaPortScanResult(JNIEnv *env, jclass clazz) {
     detect_frida_ports();
-    int n = get_frida_port_open_count();
+    int portCount = get_frida_port_open_count();
+    int processCount = get_frida_process_detail_count();
+    int n = portCount + processCount;
     int status = (n > 0) ? 2 : 0;  // 2 = DANGER, 0 = NORMAL
     jclass stringClass = env->FindClass("java/lang/String");
     if (!stringClass) return nullptr;
@@ -114,11 +117,12 @@ Java_anti_rusda_detector_DebugDetectionManager_nativeGetFridaPortScanResult(JNIE
     jobjectArray arr = env->NewObjectArray(arrLen, stringClass, nullptr);
     if (!arr) return nullptr;
     env->SetObjectArrayElement(arr, 0, env->NewStringUTF(status == 2 ? "2" : "0"));
-    env->SetObjectArrayElement(arr, 1, env->NewStringUTF(n > 0 ? "Frida port(s) detected" : "No Frida ports detected"));
+    env->SetObjectArrayElement(arr, 1, env->NewStringUTF(n > 0 ? "Frida port(s) or process(es) detected" : "No Frida ports or processes detected"));
     if (n == 0) {
-        env->SetObjectArrayElement(arr, 2, env->NewStringUTF("All Frida default ports are closed"));
+        env->SetObjectArrayElement(arr, 2, env->NewStringUTF("All Frida default ports closed, no Frida processes"));
     } else {
-        for (int i = 0; i < n; i++) {
+        int idx = 0;
+        for (int i = 0; i < portCount; i++) {
             int port = get_frida_port_open_at(i);
             const char *detail;
             char buf[64];
@@ -128,7 +132,11 @@ Java_anti_rusda_detector_DebugDetectionManager_nativeGetFridaPortScanResult(JNIE
                 snprintf(buf, sizeof(buf), "Port %d is open (Frida default)", port);
                 detail = buf;
             }
-            env->SetObjectArrayElement(arr, 2 + i, env->NewStringUTF(detail));
+            env->SetObjectArrayElement(arr, 2 + idx++, env->NewStringUTF(detail));
+        }
+        for (int i = 0; i < processCount; i++) {
+            const char *detail = get_frida_process_detail_at(i);
+            if (detail) env->SetObjectArrayElement(arr, 2 + idx++, env->NewStringUTF(detail));
         }
     }
     return arr;

@@ -1,6 +1,9 @@
 #include "port_scanner.h"
 #include "../utils/syscall_utils.h"
 #include <android/log.h>
+#include <cstdio>
+
+static void detect_frida_processes(void);
 
 #define LOG_TAG "SentryTag"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
@@ -112,6 +115,10 @@ static const int FRIDA_PORTS[] = { 27042, 0 };
 static int s_open_ports[MAX_OPEN_PORTS];
 static int s_open_port_count = 0;
 
+#define MAX_FRIDA_PROCESS_DETAILS 8
+static char s_frida_process_details[MAX_FRIDA_PROCESS_DETAILS][256];
+static int s_frida_process_count = 0;
+
 bool is_port_open(int port) {
     int sock = my_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock < 0) return false;
@@ -182,7 +189,78 @@ bool detect_frida_ports(void) {
         found = true;
         s_open_ports[s_open_port_count++] = 0;  /* 0 表示「frida-server 进程 + 监听」，非端口号 */
     }
+
+    /* Frida 进程：扫描 /proc/[pid]/comm，检测 re.frida.helper、re.frida.server 等（Frida 运行时会留下进程） */
+    detect_frida_processes();
+    if (s_frida_process_count > 0) found = true;
+
     return found;
+}
+
+// Frida 进程名关键词：re.frida 匹配 re.frida.helper/re.frida.server（comm 最长 15 字符）；frida-server 独立匹配
+static const char *FRIDA_PROCESS_KEYWORDS[] = {
+    "re.frida", "frida-server", nullptr
+};
+
+/* 扫描 /proc/[pid]/comm 检测 Frida 相关进程（re.frida.helper、re.frida.server 等） */
+static void detect_frida_processes(void) {
+    char path[64];
+    char comm[32];
+    const char prefix_proc[] = "/proc/";
+    const char suffix_comm[] = "/comm";
+
+    s_frida_process_count = 0;
+    my_memset(s_frida_process_details, 0, sizeof(s_frida_process_details));
+
+    for (int pid = 1; pid < 32768 && pid > 0 && s_frida_process_count < MAX_FRIDA_PROCESS_DETAILS; pid++) {
+        my_memset(path, 0, sizeof(path));
+        my_strcpy(path, prefix_proc);
+        pid_to_str(pid, path + sizeof(prefix_proc) - 1, sizeof(path) - (sizeof(prefix_proc) - 1));
+        size_t plen = my_strlen(path);
+        if (plen + sizeof(suffix_comm) >= sizeof(path)) continue;
+        my_strcpy(path + plen, suffix_comm);
+
+        int fd = my_open(path, O_RDONLY, 0);
+        if (fd < 0) continue;
+
+        my_memset(comm, 0, sizeof(comm));
+        ssize_t n = my_read(fd, comm, sizeof(comm) - 1);
+        my_close(fd);
+        if (n <= 0) continue;
+
+        comm[n] = '\0';
+        while (n > 0 && (comm[n - 1] == '\n' || comm[n - 1] == '\r')) {
+            comm[--n] = '\0';
+        }
+        if (n <= 0) continue;
+
+        for (int i = 0; FRIDA_PROCESS_KEYWORDS[i] != nullptr; i++) {
+            if (my_strstr(comm, FRIDA_PROCESS_KEYWORDS[i]) != nullptr) {
+                /* 避免重复：若已在 s_open_ports 中记录 frida-server (port=0)，则不再重复添加 frida-server 进程 */
+                if (my_strstr(comm, "frida-server") != nullptr) {
+                    int j;
+                    for (j = 0; j < s_open_port_count; j++)
+                        if (get_frida_port_open_at(j) == 0) break;  /* 0 = frida-server+LISTEN 已报告 */
+                    if (j < s_open_port_count) continue;  /* 已报告，跳过 */
+                }
+                /* 新进程，记录详情 */
+                snprintf(s_frida_process_details[s_frida_process_count], 256,
+                         "Frida process detected: %s (pid %d)", comm, pid);
+                s_frida_process_count++;
+                LOGD("Frida process: %s (pid %d)", comm, pid);
+                break;  /* 每个 pid 只报告一次 */
+            }
+        }
+    }
+}
+
+int get_frida_process_detail_count(void) {
+    return s_frida_process_count;
+}
+
+const char *get_frida_process_detail_at(int index) {
+    if (index < 0 || index >= s_frida_process_count) return nullptr;
+    return s_frida_process_details[index];
 }
 
 int get_frida_port_open_count(void) {
