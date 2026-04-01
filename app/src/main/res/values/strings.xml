@@ -134,8 +134,24 @@
 
     <!-- About -->
     <string name="version">Version</string>
+    <string name="version_prefix">v</string>
     <string name="open_source_licenses">Open source licenses</string>
     <string name="what_is_frida">What is Frida?</string>
+
+    <!-- Author Info -->
+    <string name="author_name">太岁又沐风</string>
+    <string name="author_info_title">Author</string>
+    <string name="github">GitHub</string>
+    <string name="github_url">github.com/taisuii</string>
+    <string name="kanxue_forum">Kanxue Forum</string>
+    <string name="kanxue_url_short">bbs.kanxue.com</string>
+    <string name="wechat">WeChat</string>
+    <string name="wechat_id">tais00</string>
+    <string name="open_link">Open link</string>
+    <string name="copy">Copy</string>
+    <string name="no_browser_found">No browser found</string>
+    <string name="wechat_copied">WeChat ID copied to clipboard</string>
+    <string name="author_info_compromised">Warning: Author information may have been modified</string>
 
     <!-- Dialogs -->
     <string name="confirm">Confirm</string>
@@ -148,4 +164,10 @@
     <string name="modifications_detected">Modifications to the environment are detected</string>
     <string name="scan_complete">Scan complete</string>
     <string name="scan_failed">Scan failed</string>
+
+    <!-- App update (GitHub Releases) -->
+    <string name="update_available_title">Update available</string>
+    <string name="update_available_message">A new release %1$s is available. You are on %2$s.</string>
+    <string name="update_view_release">View release</string>
+    <string name="update_dismiss">Later</string>
 </resources>

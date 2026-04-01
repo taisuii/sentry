@@ -134,8 +134,24 @@
 
     <!-- About -->
     <string name="version">版本</string>
+    <string name="version_prefix">v</string>
     <string name="open_source_licenses">开源许可</string>
     <string name="what_is_frida">什么是 Frida？</string>
+
+    <!-- Author Info -->
+    <string name="author_name">太岁又沐风</string>
+    <string name="author_info_title">作者</string>
+    <string name="github">GitHub</string>
+    <string name="github_url">github.com/taisuii</string>
+    <string name="kanxue_forum">看雪论坛</string>
+    <string name="kanxue_url_short">bbs.kanxue.com</string>
+    <string name="wechat">微信</string>
+    <string name="wechat_id">tais00</string>
+    <string name="open_link">打开链接</string>
+    <string name="copy">复制</string>
+    <string name="no_browser_found">未找到浏览器</string>
+    <string name="wechat_copied">微信号已复制到剪贴板</string>
+    <string name="author_info_compromised">警告：作者信息可能被篡改</string>
 
     <!-- Dialogs -->
     <string name="confirm">确认</string>
@@ -148,4 +164,10 @@
     <string name="modifications_detected">检测到环境被修改</string>
     <string name="scan_complete">检测完成</string>
     <string name="scan_failed">检测失败</string>
+
+    <!-- App update (GitHub Releases) -->
+    <string name="update_available_title">有新版本</string>
+    <string name="update_available_message">最新版本为 %1$s，当前为 %2$s。</string>
+    <string name="update_view_release">查看发布页</string>
+    <string name="update_dismiss">稍后</string>
 </resources>

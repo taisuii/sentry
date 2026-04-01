@@ -1,33 +1,58 @@
-# Gradle files
+# ------------------------------
+# Build / Gradle outputs
+# ------------------------------
 .gradle/
-build/
-
-# Local configuration file (sdk path, etc)
-local.properties
-
-# Log/OS Files
-*.log
-
-# Android Studio generated files and folders
-captures/
+**/build/
 .externalNativeBuild/
 .cxx/
-*.apk
-output.json
 
-# IntelliJ
+# ------------------------------
+# Local machine / IDE files
+# ------------------------------
+local.properties
 *.iml
 .idea/
-misc.xml
-deploymentTargetDropDown.xml
-render.experimental.xml
+.vscode/
+.cursor/
+.claude/
 
-# Keystore files
+# ------------------------------
+# Logs / profiling / generated artifacts
+# ------------------------------
+*.log
+*.hprof
+captures/
+*.apk
+*.aab
+output.json
+
+# ------------------------------
+# Secrets / signing
+# ------------------------------
 *.jks
 *.keystore
-
-# Google Services (e.g. APIs or Firebase)
 google-services.json
 
-# Android Profiling
-*.hprof
+# ------------------------------
+# OS junk
+# ------------------------------
+.DS_Store
+Thumbs.db
+
+# ------------------------------
+# Non-core local assets
+# ------------------------------
+
+
+# ------------------------------
+# Keep core project files tracked
+# (prevent accidental over-ignore)
+# ------------------------------
+!app/src/main/java/**
+!app/src/main/cpp/**
+!app/src/main/res/**
+!doc/**
+!gradle/wrapper/**
+!build.gradle
+!settings.gradle
+!gradle.properties

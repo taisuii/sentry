@@ -1,18 +1,26 @@
 package anti.rusda;
 
+import android.content.ActivityNotFoundException;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.core.content.ContextCompat;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 
+import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 
@@ -31,6 +39,13 @@ import com.google.android.material.chip.ChipGroup;
 
 public class OverviewFragment extends Fragment {
 
+    private static final String PREFS = "sentry_prefs";
+    private static final String PREF_PENDING_UPDATE_VERSION = "pending_update_remote_version";
+    private static final String PREF_PENDING_UPDATE_URL = "pending_update_release_url";
+    private static final String PREF_DISMISSED_UPDATE_VERSION = "dismissed_update_version";
+
+    private static final String GITHUB_URL = "https://github.com/taisuii";
+
     private TextView scoreValue;
     private TextView scoreLabel;
     private MaterialButton scanButton;
@@ -39,6 +54,13 @@ public class OverviewFragment extends Fragment {
     private LinearLayout deviceInfoContainer;
     private TextView warningTagsLabel;
     private ChipGroup warningTagsContainer;
+    private ImageView githubIcon;
+    private MaterialCardView updateBanner;
+    private TextView updateBannerMessage;
+    private MaterialButton updateBannerOpen;
+    private MaterialButton updateBannerDismiss;
+
+    private String pendingReleaseUrl;
 
     private int totalScore = -1;
     private int maxScore = -1;
@@ -62,9 +84,133 @@ public class OverviewFragment extends Fragment {
         deviceInfoContainer = view.findViewById(R.id.device_info_container);
         warningTagsLabel = view.findViewById(R.id.warning_tags_label);
         warningTagsContainer = view.findViewById(R.id.warning_tags_container);
+        githubIcon = view.findViewById(R.id.github_icon);
+        updateBanner = view.findViewById(R.id.update_banner);
+        updateBannerMessage = view.findViewById(R.id.update_banner_message);
+        updateBannerOpen = view.findViewById(R.id.update_banner_open);
+        updateBannerDismiss = view.findViewById(R.id.update_banner_dismiss);
+
+        // 设置 GitHub 图标点击事件
+        if (githubIcon != null) {
+            githubIcon.setOnClickListener(v -> openGitHub());
+        }
+
+        if (updateBannerOpen != null) {
+            updateBannerOpen.setOnClickListener(v -> openPendingRelease());
+        }
+        if (updateBannerDismiss != null) {
+            updateBannerDismiss.setOnClickListener(v -> dismissUpdateBannerForCurrentPending());
+        }
+
         fillDeviceInfo();
         refreshScoreDisplay();
         bindScanButton();
+        applyStoredUpdateHint();
+    }
+
+    /**
+     * 展示或隐藏「新版本」横幅（来自 GitHub Release）。主线程调用。
+     */
+    public void applyVersionCheckResult(@NonNull GitHubReleaseChecker.Result result) {
+        SharedPreferences prefs = prefs();
+        if (result.success && result.updateAvailable
+                && result.remoteVersionName != null
+                && result.releasePageUrl != null) {
+            prefs.edit()
+                    .putString(PREF_PENDING_UPDATE_VERSION, result.remoteVersionName)
+                    .putString(PREF_PENDING_UPDATE_URL, result.releasePageUrl)
+                    .apply();
+            showUpdateBannerIfNotDismissed(result.remoteVersionName, result.releasePageUrl);
+            return;
+        }
+        if (result.success && !result.updateAvailable) {
+            prefs.edit()
+                    .remove(PREF_PENDING_UPDATE_VERSION)
+                    .remove(PREF_PENDING_UPDATE_URL)
+                    .apply();
+            hideUpdateBanner();
+            return;
+        }
+        // 网络失败等：保留已缓存的待更新状态，仅刷新当前是否仍应显示
+        applyStoredUpdateHint();
+    }
+
+    /** 从本地缓存恢复横幅（冷却期内未请求网络时仍可提示） */
+    private void applyStoredUpdateHint() {
+        SharedPreferences prefs = prefs();
+        String remote = prefs.getString(PREF_PENDING_UPDATE_VERSION, null);
+        String url = prefs.getString(PREF_PENDING_UPDATE_URL, null);
+        if (remote == null || url == null || remote.isEmpty() || url.isEmpty()) {
+            hideUpdateBanner();
+            return;
+        }
+        String local = BuildConfig.VERSION_NAME != null ? BuildConfig.VERSION_NAME.trim() : "";
+        if (GitHubReleaseChecker.compareSemanticVersions(
+                GitHubReleaseChecker.normalizeVersionTag(remote), local) <= 0) {
+            hideUpdateBanner();
+            return;
+        }
+        showUpdateBannerIfNotDismissed(remote, url);
+    }
+
+    private void showUpdateBannerIfNotDismissed(@NonNull String remoteVersion, @NonNull String releaseUrl) {
+        if (updateBanner == null || updateBannerMessage == null || getContext() == null) {
+            return;
+        }
+        String dismissed = prefs().getString(PREF_DISMISSED_UPDATE_VERSION, "");
+        if (remoteVersion.equals(dismissed)) {
+            updateBanner.setVisibility(View.GONE);
+            return;
+        }
+        pendingReleaseUrl = releaseUrl;
+        String local = BuildConfig.VERSION_NAME != null ? BuildConfig.VERSION_NAME : "";
+        updateBannerMessage.setText(getString(R.string.update_available_message, remoteVersion, local));
+        updateBanner.setVisibility(View.VISIBLE);
+    }
+
+    private void hideUpdateBanner() {
+        pendingReleaseUrl = null;
+        if (updateBanner != null) {
+            updateBanner.setVisibility(View.GONE);
+        }
+    }
+
+    private void openPendingRelease() {
+        if (pendingReleaseUrl == null || getContext() == null) {
+            return;
+        }
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(pendingReleaseUrl)));
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(requireContext(), getString(R.string.no_browser_found), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void dismissUpdateBannerForCurrentPending() {
+        SharedPreferences prefs = prefs();
+        String remote = prefs.getString(PREF_PENDING_UPDATE_VERSION, null);
+        if (remote != null) {
+            prefs.edit().putString(PREF_DISMISSED_UPDATE_VERSION, remote).apply();
+        }
+        hideUpdateBanner();
+    }
+
+    private SharedPreferences prefs() {
+        return requireContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    /**
+     * 打开 GitHub 主页
+     */
+    private void openGitHub() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_URL));
+            startActivity(intent);
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(requireContext(),
+                getString(R.string.no_browser_found),
+                Toast.LENGTH_SHORT).show();
+        }
     }
 
     @Override

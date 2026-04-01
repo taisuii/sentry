@@ -1,8 +1,16 @@
 package anti.rusda;
 
+import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import android.os.Bundle;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatDelegate;
 
@@ -10,6 +18,10 @@ import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.materialswitch.MaterialSwitch;
 
 public class SettingsActivity extends BaseActivity {
+
+    private static final String GITHUB_URL = "https://github.com/taisuii";
+    private static final String KANXUE_URL = "https://bbs.kanxue.com/homepage-957122.htm";
+    private static final String WECHAT_ID = "tais00";
 
     private SharedPreferences prefs;
 
@@ -70,6 +82,63 @@ public class SettingsActivity extends BaseActivity {
         advancedChecksSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             prefs.edit().putBoolean("advanced_checks", isChecked).apply();
         });
+
+        // 设置版本号
+        TextView versionText = findViewById(R.id.version_text);
+        if (versionText != null) {
+            String version = getString(R.string.version_prefix) + MainActivity.getVersionName();
+            versionText.setText(version);
+        }
+
+        // Author info links
+        setupAuthorLinks();
+    }
+
+    /**
+     * 设置作者信息链接点击事件
+     */
+    private void setupAuthorLinks() {
+        // GitHub
+        LinearLayout githubContainer = findViewById(R.id.about_github_container);
+        if (githubContainer != null) {
+            githubContainer.setOnClickListener(v -> openLink(GITHUB_URL));
+        }
+
+        // WeChat - copy to clipboard
+        LinearLayout wechatContainer = findViewById(R.id.wechat_container);
+        if (wechatContainer != null) {
+            wechatContainer.setOnClickListener(v -> copyWechatId());
+        }
+
+        // Kanxue Forum
+        LinearLayout kanxueContainer = findViewById(R.id.about_kanxue_container);
+        if (kanxueContainer != null) {
+            kanxueContainer.setOnClickListener(v -> openLink(KANXUE_URL));
+        }
+    }
+
+    /**
+     * 打开链接
+     */
+    private void openLink(String url) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            startActivity(intent);
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, getString(R.string.no_browser_found), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * 复制微信号到剪贴板
+     */
+    private void copyWechatId() {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            ClipData clip = ClipData.newPlainText("WeChat ID", WECHAT_ID);
+            clipboard.setPrimaryClip(clip);
+            Toast.makeText(this, getString(R.string.wechat_copied), Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void applyTheme(int mode) {

@@ -32,6 +32,10 @@ import java.security.MessageDigest;
 
 
 public class MainActivity extends BaseActivity {
+    /** 反调试分数权重：1.5x（分子/分母避免浮点误差） */
+    private static final int DEBUG_SCORE_WEIGHT_NUMERATOR = 3;
+    private static final int DEBUG_SCORE_WEIGHT_DENOMINATOR = 2;
+
     public static String md5(String input) {
         try {
             MessageDigest md = MessageDigest.getInstance("MD5");
@@ -78,6 +82,27 @@ public class MainActivity extends BaseActivity {
         return mScanClickListener;
     }
 
+    /** 获取版本号（供其他组件使用） */
+    public static String getVersionName() {
+        return BuildConfig.VERSION_NAME;
+    }
+
+    /** 按冷却时间查询 GitHub 最新 Release，若有新版本则在概览页展示横幅 */
+    private void scheduleGitHubVersionCheckIfDue(SharedPreferences prefs) {
+        long last = prefs.getLong("last_github_release_check_ms", 0L);
+        if (GitHubReleaseChecker.shouldSkipCheckDueToCooldown(last, GitHubReleaseChecker.defaultCooldownMs())) {
+            return;
+        }
+        GitHubReleaseChecker.checkLatestAsync(result -> {
+            prefs.edit().putLong("last_github_release_check_ms", System.currentTimeMillis()).apply();
+            runOnUiThread(() -> {
+                if (overviewFragment != null) {
+                    overviewFragment.applyVersionCheckResult(result);
+                }
+            });
+        });
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -118,11 +143,13 @@ public class MainActivity extends BaseActivity {
         setupToolbar();
         applyNavigationBarInsets();
 
-        // 启动时自动检测：若用户已开启则延迟执行一次，确保 UI 就绪
         SharedPreferences prefs = getSharedPreferences("sentry_prefs", MODE_PRIVATE);
+        // 启动时自动检测：若用户已开启则延迟执行一次，确保 UI 就绪
         if (prefs.getBoolean("auto_scan", false)) {
             new Handler(Looper.getMainLooper()).postDelayed(this::runAllScans, 500);
         }
+
+        scheduleGitHubVersionCheckIfDue(prefs);
 
         Log.d("SentryTag", "MainActivity    md5: " + md5("1234567890"));
     }
@@ -151,6 +178,14 @@ public class MainActivity extends BaseActivity {
 
     private void setupToolbar() {
         com.google.android.material.appbar.MaterialToolbar toolbar = findViewById(R.id.toolbar);
+
+        // 设置标题（不带版本号）
+        toolbar.setTitle(R.string.app_name);
+
+        // 创建带版本号的副标题
+        String subtitle = getString(R.string.version_prefix) + BuildConfig.VERSION_NAME;
+        toolbar.setSubtitle(subtitle);
+
         toolbar.setOnMenuItemClickListener(item -> {
             if (item.getItemId() == R.id.action_settings) {
                 startActivityForResult(new Intent(this, SettingsActivity.class), 100);
@@ -183,8 +218,8 @@ public class MainActivity extends BaseActivity {
 
                 int total = 0, max = 0;
                 for (DetectionResult r : debug) {
-                    total += r.getEarnedScore();
-                    max += r.getMaxScore();
+                    total += applyDebugScoreWeight(r.getEarnedScore());
+                    max += applyDebugScoreWeight(r.getMaxScore());
                 }
                 for (DetectionResult r : env) {
                     total += r.getEarnedScore();
@@ -231,5 +266,11 @@ public class MainActivity extends BaseActivity {
         overviewFragment.setScanning(scanning);
         debugFragment.setScanning(scanning);
         environmentFragment.setScanning(scanning);
+    }
+
+    /** 对反调试检测分数应用 1.5x 权重，并做四舍五入。 */
+    private static int applyDebugScoreWeight(int score) {
+        return (score * DEBUG_SCORE_WEIGHT_NUMERATOR + (DEBUG_SCORE_WEIGHT_DENOMINATOR / 2))
+                / DEBUG_SCORE_WEIGHT_DENOMINATOR;
     }
 }
