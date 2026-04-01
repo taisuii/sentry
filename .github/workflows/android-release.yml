@@ -1,0 +1,81 @@
+name: Android Signed APK Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Prepare signing keystore
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            echo "Missing secret: RELEASE_KEYSTORE_BASE64"
+            exit 1
+          fi
+          echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > app/release.keystore
+
+      - name: Build signed release APK
+        run: ./gradlew --no-daemon clean assembleRelease
+
+      # 与 App 内 GitHubReleaseChecker 一致：Release 的 tag 须为语义版本（对应 app/build.gradle 的 versionName）
+      - name: Read app version from Gradle
+        id: appver
+        shell: bash
+        run: |
+          set -euo pipefail
+          V="$(grep -E '^[[:space:]]*versionName[[:space:]]+"' app/build.gradle | head -1 | sed -E 's/^[[:space:]]*versionName[[:space:]]+"([^"]+)".*/\1/')"
+          if [ -z "${V}" ]; then
+            echo "::error::Could not parse versionName from app/build.gradle"
+            exit 1
+          fi
+          TAG="v${V}"
+          echo "version_name=${V}" >> "${GITHUB_OUTPUT}"
+          echo "tag_name=${TAG}" >> "${GITHUB_OUTPUT}"
+
+      # 避免每次 push main 重复打同一 tag 导致 Release 失败；发新版请先提高 versionName / versionCode
+      - name: Skip if release tag already exists
+        id: skip
+        shell: bash
+        env:
+          TAG: ${{ steps.appver.outputs.tag_name }}
+        run: |
+          git fetch --tags --depth=1 2>/dev/null || true
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists on remote — bump versionName in app/build.gradle for a new release."
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "skip=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Release skipped (tag exists)
+        if: steps.skip.outputs.skip == 'true'
+        shell: bash
+        run: 'echo "::notice::未创建 Release：远端已存在 ${{ steps.appver.outputs.tag_name }}。请在 app/build.gradle 中提高 versionName 后再发版。"'
+
+      - name: Publish GitHub Release
+        if: steps.skip.outputs.skip != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.appver.outputs.tag_name }}
+          name: Sentry ${{ steps.appver.outputs.version_name }}
+          generate_release_notes: true
+          files: app/build/outputs/apk/release/app-release.apk
