@@ -9,6 +9,16 @@
 
 ---
 
+## 📢 关注公众号
+
+> 更多 **Android 安全 / 逆向 / 风控对抗** 干货与本项目更新，第一时间推送。微信搜索关注 👇
+
+<p align="center">
+  <img src="https://blog-img-1393828675.cos.ap-shanghai.myqcloud.com/rreversewechat/wechatsearch.png" alt="关注公众号" width="420" />
+</p>
+
+---
+
 ## 界面预览
 
 | 概览 | 调试检测 |
