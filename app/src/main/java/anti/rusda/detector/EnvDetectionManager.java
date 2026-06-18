@@ -73,6 +73,8 @@ public class EnvDetectionManager {
     private static native String[] nativeVerifyXposedModules(String[] apkPaths, String[] packageNames);
     /** 应用签名校验（防二次打包）：当前 APK 签名 SHA-256 与构建时预期值在 Native 层比对，返回 0=NORMAL，2=DANGER */
     private static native int nativeVerifyAppSignature(String sha256Hex);
+    /** 从 APK 文件直接解析 v2/v3 签名块取证书 SHA-256（syscall 读文件，绕开可被 hook 的 PackageManager）；失败返回空串 */
+    private static native String nativeGetApkCertSha256FromFile(String apkPath);
 
     private final Context context;
 
@@ -83,6 +85,7 @@ public class EnvDetectionManager {
     public List<DetectionResult> runAllDetections() {
         List<DetectionResult> results = new ArrayList<>();
         results.add(detectAppSignature());
+        results.add(detectApkTamper());
         results.add(detectBootloader());
         results.add(detectRoot());
         results.add(detectXposedModules());
@@ -123,6 +126,76 @@ public class EnvDetectionManager {
             details.add("Verify error: " + (t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName()));
             return new DetectionResult("App Signature", "Check failed", DetectionResult.STATUS_WARNING, 15, details);
         }
+    }
+
+    /**
+     * APK 防改包 / 反签名伪装（文件级，强于 {@link #detectAppSignature()}）。
+     *
+     * E1「App Signature」走 PackageManager，可被 CorePatch / 签名伪装类 Xposed 模块
+     * hook 后返回原始签名 —— 改包重签后仍 PASS。本项直接用 Native syscall 从 APK
+     * 文件解析 v2/v3 签名块取证书 SHA-256（绕开 PackageManager），两路交叉判定：
+     *   1) 文件签名 != PackageManager 签名 → 有签名伪装模块在骗 Java API（DANGER）
+     *   2) 文件签名 != 构建期注入预期 → 被人重签改包（DANGER，预期仅 release 注入）
+     * 解析失败（v1-only / 非常规 ZIP）不误判，仅 warnOnly 提示。
+     */
+    private DetectionResult detectApkTamper() {
+        List<String> details = new ArrayList<>();
+        if (context == null) {
+            details.add("Context unavailable");
+            return new DetectionResult("APK Repack Guard", "Check skipped", DetectionResult.STATUS_NORMAL, 15, details, true);
+        }
+        String apkPath = null;
+        try {
+            ApplicationInfo ai = context.getApplicationInfo();
+            if (ai != null) apkPath = ai.sourceDir;
+        } catch (Throwable ignored) { }
+        if (apkPath == null || apkPath.isEmpty()) {
+            details.add("APK path unavailable");
+            return new DetectionResult("APK Repack Guard", "Check skipped", DetectionResult.STATUS_WARNING, 15, details, true);
+        }
+        details.add("APK: " + apkPath);
+
+        String fileSha;
+        try {
+            fileSha = nativeGetApkCertSha256FromFile(apkPath);
+        } catch (Throwable t) {
+            fileSha = null;
+        }
+        if (fileSha == null || fileSha.isEmpty()) {
+            details.add("Could not parse v2/v3 signing block from APK file");
+            /* 解析失败不下危险结论（v1-only 签名等），仅警示 */
+            return new DetectionResult("APK Repack Guard", "Check skipped (no v2/v3 block)", DetectionResult.STATUS_WARNING, 15, details, true);
+        }
+        details.add("File-parsed cert SHA-256: " + fileSha);
+
+        /* 1) 反签名伪装：文件真值 vs PackageManager 报告值 */
+        String pmSha = getAppSignatureSha256(context);
+        if (pmSha != null && !pmSha.isEmpty()) {
+            details.add("PackageManager cert SHA-256: " + pmSha);
+            if (!pmSha.equalsIgnoreCase(fileSha)) {
+                details.add("MISMATCH: PackageManager signature != APK file signature");
+                details.add("A signature-spoofing module (e.g. CorePatch) is faking the Java API");
+                return new DetectionResult("APK Repack Guard", "Signature spoofing detected", DetectionResult.STATUS_DANGER, 15, details);
+            }
+            details.add("PackageManager matches file (no spoofing)");
+        } else {
+            details.add("PackageManager signature unavailable (file-level check only)");
+        }
+
+        /* 2) 防改包：文件真值 vs 构建期注入预期（Native 比对；debug 未注入则放行） */
+        try {
+            int verify = nativeVerifyAppSignature(fileSha);
+            if (verify == 2) {
+                details.add("File signature != expected - repackaged & re-signed with another key");
+                return new DetectionResult("APK Repack Guard", "Repackaged (file signature mismatch)", DetectionResult.STATUS_DANGER, 15, details);
+            }
+            details.add("File signature matches expected (or expected not embedded in debug build)");
+        } catch (Throwable t) {
+            details.add("Expected-signature verify error: "
+                    + (t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName()));
+        }
+
+        return new DetectionResult("APK Repack Guard", "APK signature intact (file-level, anti-spoof)", DetectionResult.STATUS_NORMAL, 15, details);
     }
 
     /**

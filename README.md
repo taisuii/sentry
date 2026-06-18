@@ -2,7 +2,7 @@
 
 面向风控与移动安全研究的多信号本地检测引擎：Java 编排 + Native 对抗，syscall 优先、多通道交叉验证，将结论做成可解释、可量化的运行时画像。
 
-- 21 项检测，分调试域 11 + 环境域 10，状态三态 `NORMAL` / `WARNING` / `DANGER`
+- 22 项检测，分调试域 11 + 环境域 11，状态三态 `NORMAL` / `WARNING` / `DANGER`
 - 调试域统一施加 **1.5× 权重**，`warnOnly` 仅提示不扣分
 - 仅构建 `arm64-v8a`，最低 Android 7（API 24），目标 Android 16（API 36）
 - 完整规格见 [`doc/DETECTION_SPEC.md`](doc/DETECTION_SPEC.md)
@@ -33,9 +33,9 @@
 
 ## 检测覆盖面
 
-**调试域 · 11 项**：Frida 线程 / Frida 端口与进程 / 内存与 maps 签名 / Java exec 通道 maps / ptrace 与调试器附加 / Debug.isDebuggerConnected / Xposed·Hook 框架 / SO 代码段完整性 / ArtMethod entry / SIGTRAP Hook 陷阱 / 脏页与内存注入。
+**调试域 · 11 项**：Frida 线程 / Frida 端口与进程 / 内存与 maps 签名 / Java exec 通道 maps / ptrace 与调试器附加 / Debug.isDebuggerConnected / Xposed·Hook 框架（含 **ClassLinker `class_loaders_` 计数**，对抗 maps 隐藏） / SO 代码段完整性 / ArtMethod entry / SIGTRAP Hook 陷阱 / 脏页与内存注入。
 
-**环境域 · 10 项**：APK 签名校验 / Bootloader + Key Attestation RootOfTrust / Magisk·Root / 危险应用（warnOnly） / 可疑路径 / 模拟器 / 内核补丁陈旧度（warnOnly） / ADB 多通道（warnOnly） / 多开 / 容器与 cgroup。
+**环境域 · 11 项**：App 签名校验（PackageManager） / **APK 防改包·反签名伪装（文件级解析 v2/v3 签名块）** / Bootloader + Key Attestation RootOfTrust / Magisk·Root / 危险应用（warnOnly） / 可疑路径 / 模拟器 / 内核补丁陈旧度（warnOnly） / ADB 多通道（warnOnly） / 多开 / 容器与 cgroup。
 
 每项的原理、命中条件、代码位置、权重、`warnOnly`、平台限制与已知误报场景见 [`doc/DETECTION_SPEC.md`](doc/DETECTION_SPEC.md)。
 
@@ -98,7 +98,7 @@ max     = Σ(debug.max    × 1.5) + Σ(env.max)
 percent = round(100 × score / max)
 ```
 
-按当前权重满分 **260**：调试域 11×10 ×1.5 = **165**，环境域 5+15+15+12+5+5+10+5+5+8 = **95**。首页"100"等价 `score/260 == 100%`。
+按当前权重满分 **275**：调试域 11×10 ×1.5 = **165**，环境域 15+15+15+12+10+10+10+5+5+5+8 = **110**。首页"100"等价 `score/275 == 100%`。
 
 `warnOnly` 在 WARNING 时仍计满分，仅 UI 警示——把"开发机常开 ADB、补丁偏旧、装有 Xposed 模块但不等于正在 hook 本进程"等场景从分数里解耦，减少运营误伤。
 
@@ -122,6 +122,6 @@ percent = round(100 × score / max)
 
 ## 延伸阅读
 
-- [`doc/DETECTION_SPEC.md`](doc/DETECTION_SPEC.md)：21 项检测的完整规格 —— 原理、命中条件、代码位置、权重、`warnOnly`、已知限制、误报场景。
+- [`doc/DETECTION_SPEC.md`](doc/DETECTION_SPEC.md)：22 项检测的完整规格 —— 原理、命中条件、代码位置、权重、`warnOnly`、已知限制、误报场景。
 - [`SentryApp.java`](app/src/main/java/anti/rusda/SentryApp.java)：启动期签名 fail-fast 入口。
 - [`MainActivity.java`](app/src/main/java/anti/rusda/MainActivity.java)：调度与评分权重源头。

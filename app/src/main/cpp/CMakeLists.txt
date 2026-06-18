@@ -43,6 +43,7 @@ add_library(envdetect SHARED
     native-lib-env.cpp
     detector/env_detector.cpp
     detector/signature_checker.cpp
+    detector/apk_signature.cpp
     utils/syscall_utils.cpp
 )
 target_include_directories(envdetect PRIVATE

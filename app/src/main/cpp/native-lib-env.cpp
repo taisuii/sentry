@@ -3,6 +3,7 @@
 #include <string>
 #include "detector/env_detector.h"
 #include "detector/signature_checker.h"
+#include "detector/apk_signature.h"
 
 #define MAX_DETAILS 16
 
@@ -165,6 +166,22 @@ Java_anti_rusda_detector_EnvDetectionManager_nativeVerifyXposedModules(JNIEnv *e
         env->SetObjectArrayElement(result, i, env->NewStringUTF(outPkgs[i]));
     }
     return result;
+}
+
+// APK file-level signing cert SHA-256 (anti-repackage + anti signature-spoof):
+// parses v2/v3 signing block directly from the APK file via syscall, bypassing
+// PackageManager (which CorePatch/fake-signature modules can hook). Returns
+// 64-hex lowercase, or "" on failure.
+JNIEXPORT jstring JNICALL
+Java_anti_rusda_detector_EnvDetectionManager_nativeGetApkCertSha256FromFile(JNIEnv *env, jclass clazz, jstring apkPath) {
+    if (!apkPath) return env->NewStringUTF("");
+    const char *path = env->GetStringUTFChars(apkPath, nullptr);
+    if (!path) return env->NewStringUTF("");
+    char hex[65];
+    hex[0] = '\0';
+    int r = apk_get_signing_cert_sha256(path, hex, sizeof(hex));
+    env->ReleaseStringUTFChars(apkPath, path);
+    return env->NewStringUTF(r == 0 ? hex : "");
 }
 
 // App signature verification (anti-repackage): current SHA-256 hex from Java, compare with build-time expected

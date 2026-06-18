@@ -29,6 +29,7 @@
   - [E8. ADB Debug（warnOnly）](#e8-adb-debugwarnonly)
   - [E9. Multi-instance](#e9-multi-instance)
   - [E10. Container / Virtualization](#e10-container--virtualization)
+  - [E11. APK Repack Guard（防改包 / 反签名伪装）](#e11-apk-repack-guard防改包--反签名伪装)
 - [平台覆盖与已知限制](#平台覆盖与已知限制)
 
 ---
@@ -49,7 +50,7 @@ max   = Σ(debug_item.max    × 1.5) + Σ(env_item.max)
 percent = round(100 × score / max)
 ```
 
-- 单项满分：默认 10；`Bootloader`/`App Signature` 15、`Magisk/Root` 12、`Kernel Patch` 10、`Container` 8、`Dangerous Apps`/`ADB Debug`/`Multi-instance`/`Suspicious Files`/`Emulator` 5。
+- 单项满分：默认 10；`Bootloader`/`App Signature`/`APK Repack Guard` 15、`Magisk/Root` 12、`Kernel Patch` 10、`Container` 8、`Dangerous Apps`/`ADB Debug`/`Multi-instance`/`Suspicious Files`/`Emulator` 5。
 - `STATUS_NORMAL → maxScore`；`STATUS_WARNING → maxScore/2`（`warnOnly` 时仍取 maxScore）；`STATUS_DANGER → 0`。
 - 调试域 1.5× 权重在 [`MainActivity.applyDebugScoreWeight`](../app/src/main/java/anti/rusda/MainActivity.java)；调整权重时务必同步更新本文。
 
@@ -58,10 +59,10 @@ percent = round(100 × score / max)
 | 维度 | 项目数 | 单项 maxScore 累计 | × 权重 | 域满分 |
 |---|---|---|---|---|
 | Debug | 11 | 11 × 10 = 110 | × 1.5 | **165** |
-| Environment | 10 | 15+15+12+5+5+5+10+5+5+8 = 85 | × 1 | **95** |
-| **总计** | 21 | — | — | **260** |
+| Environment | 11 | 15+15+15+12+10+10+10+5+5+5+8 = 110 | × 1 | **110** |
+| **总计** | 22 | — | — | **275** |
 
-> 即首页"100"代表 `score/260 = 100%`，并非 README 历史描述的 205。
+> 即首页"100"代表 `score/275 = 100%`。环境域含两项签名相关检测：E1 走 PackageManager、E11 走文件级解析（反签名伪装）。
 
 ---
 
@@ -262,7 +263,7 @@ percent = round(100 × score / max)
 
 ---
 
-## Environment Tab · 10 项
+## Environment Tab · 11 项
 
 ### E1. App Signature
 
@@ -397,6 +398,39 @@ percent = round(100 × score / max)
 1. **包名 vs cmdline**：`context.getPackageName()` 与 `/proc/self/cmdline` 不一致——VirtualApp 类容器的标志。
 2. **已知容器包名**：`io.va.exposed` / `com.lody.virtual` / `me.weishu.exp`（太极）/ `com.parallel.space.lite` / `com.excelliance.dualaid`。
 3. **`/proc/1/cgroup`**：含 `lxc` / `docker` / `kubepods`。
+
+### E11. APK Repack Guard（防改包 / 反签名伪装）
+
+| 字段 | 值 |
+|---|---|
+| 实现 | [`EnvDetectionManager.detectApkTamper()`](../app/src/main/java/anti/rusda/detector/EnvDetectionManager.java) + [`apk_signature.cpp`](../app/src/main/cpp/detector/apk_signature.cpp) |
+| maxScore | 15 |
+| 状态 | 签名伪装 / 重签改包 → DANGER；无 v2/v3 块解析失败 → WARNING（warnOnly） |
+
+**为什么需要它（E1 的盲区）**：
+E1「App Signature」走 `PackageManager.getPackageInfo(GET_SIGNING_CERTIFICATES)`，这是个 **Java API，能被 hook**。`CorePatch`、`FakeSignature` 这类 Xposed/LSPosed 模块专门 hook 它，让改包重签后的应用在调用 PackageManager 时仍返回**原始开发者签名** —— 于是 E1 照样 PASS。本项就是为了对抗这种"签名伪装"。
+
+**机制（全程 Native syscall，不给 Java 留 hook 点）**：
+[`apk_signature.cpp`](../app/src/main/cpp/detector/apk_signature.cpp) 用 syscall 直读已安装 APK 文件（`ApplicationInfo.sourceDir`），解析 **APK Signing Block**：
+1. 读文件尾定位 ZIP 的 **EOCD**（`0x06054b50`），取 Central Directory 偏移；
+2. CD 前即 APK Sig Block，校验尾部 16 字节魔数 `APK Sig Block 42`；
+3. 遍历块内 ID-value 对，找 **v2(`0x7109871a`)/v3(`0xf05368c0`)/v3.1(`0x1b93ad61`)** 签名者；
+4. 按 length-prefixed 结构（signers → signer → signed_data → digests → **certificates**）取首签名者首证书的 **X.509 DER**；
+5. 自带 **SHA-256**（无 libcrypto 依赖）算出证书指纹，64 位小写 hex。
+
+全程 bounds-check 防越界；解析失败（v1-only 签名、非常规 ZIP）返回失败，由上层判 warnOnly WARNING 而非误报。
+
+**两路交叉判定**：
+1. **反签名伪装**：文件解析签名 ≠ `PackageManager` 报告签名 → 有伪装模块在骗 Java API → DANGER。
+2. **防改包**：文件解析签名 ≠ 构建期注入的 `EXPECTED_SIGNATURE_SHA256` → 被人重签改包 → DANGER（预期值仅 release 注入；debug 未注入则此路放行）。
+
+与 [E1](#e1-app-signature) 的关系：E1 是 PackageManager 快速路径 + 启动期 fail-fast 闸门；E11 是文件级真值 + 反伪装。两者互补，文件级是 ground truth。
+
+**实测验证（Pixel 6 Pro / Android 16）**：
+- Native 解析出的证书 SHA-256 与 `apksigner verify --print-certs` **逐字节一致**（`30e6890f…8448592d`，cert_len=869）。
+- 合法 APK 上：文件 == PackageManager == 预期 → PASS。
+- 另一把 key 重签副本后证书 SHA-256 变为 `0152e6e5…`，与预期不符 → 防改包路必触发。
+- 防改包还有 [`SentryApp.onCreate`](../app/src/main/java/anti/rusda/SentryApp.java) 启动期闸门兜底：重签后 PackageManager 签名（真实新 key）≠ 预期 → 进程在最早阶段自杀，业务层根本不执行。
 
 ---
 
