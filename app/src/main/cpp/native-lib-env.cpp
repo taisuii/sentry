@@ -189,6 +189,19 @@ static jobjectArray JNICALL e12(JNIEnv *env, jclass, jstring jHardware, jstring 
     return buildResult(env, status, summary, details, n);
 }
 
+static jint JNICALL e13(JNIEnv *env, jclass, jstring apkPath) {  /* nativeApkFdInodeConsistent */
+    if (!apkPath) return -1;
+    const char *path = env->GetStringUTFChars(apkPath, nullptr);
+    if (!path) return -1;
+    int r = apk_fd_inode_consistent(path);
+    env->ReleaseStringUTFChars(apkPath, path);
+    return r;
+}
+
+static jint JNICALL e14(JNIEnv *env, jclass) {  /* nativeSeccompConsistent */
+    return seccomp_prctl_status_consistent();
+}
+
 static const JNINativeMethod kEnvMethods[] = {
     { "nativeGetEnvVersion",            "()Ljava/lang/String;",                                                              (void *)e0 },
     { "nativeDetectMagisk",             "()[Ljava/lang/String;",                                                             (void *)e2 },
@@ -201,6 +214,8 @@ static const JNINativeMethod kEnvMethods[] = {
     { "nativeGetApkCertSha256FromFile", "(Ljava/lang/String;)Ljava/lang/String;",                                           (void *)e10 },
     { "nativeVerifyAppSignature",       "(Ljava/lang/String;)I",                                                            (void *)e11 },
     { "nativeDetectEmulator",           "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;", (void *)e12 },
+    { "nativeApkFdInodeConsistent",     "(Ljava/lang/String;)I",                                                            (void *)e13 },
+    { "nativeSeccompConsistent",        "()I",                                                                              (void *)e14 },
 };
 static const JNINativeMethod kDbgMethods[] = {
     { "nativeDetectZygiskInjection",    "()[Ljava/lang/String;", (void *)e4 },

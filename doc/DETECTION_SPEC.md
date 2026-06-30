@@ -31,6 +31,7 @@
   - [E10. Container / Virtualization](#e10-container--virtualization)
   - [E11. APK Repack Guard（防改包 / 反签名伪装）](#e11-apk-repack-guard防改包--反签名伪装)
   - [E12. Cloud Phone / Sensors（云手机 / 传感器·硬件真实性）](#e12-cloud-phone--sensors云手机--传感器硬件真实性)
+  - [E13. Signature Bypass Footprint（签名绕过足迹）](#e13-signature-bypass-footprint签名绕过足迹)
 - [平台覆盖与已知限制](#平台覆盖与已知限制)
 
 ---
@@ -51,7 +52,7 @@ max   = Σ(debug_item.max    × 1.5) + Σ(env_item.max)
 percent = round(100 × score / max)
 ```
 
-- 单项满分：默认 10；`Bootloader`/`App Signature`/`APK Repack Guard` 15、`Magisk/Root` 12、`Kernel Patch` 10、`Container`/`Cloud Phone / Sensors` 8、`Dangerous Apps`/`ADB Debug`/`Multi-instance`/`Suspicious Files`/`Emulator` 5。
+- 单项满分：默认 10；`Bootloader`/`App Signature`/`APK Repack Guard` 15、`Magisk/Root` 12、`Signature Bypass Footprint` 12、`Kernel Patch` 10、`Container`/`Cloud Phone / Sensors` 8、`Dangerous Apps`/`ADB Debug`/`Multi-instance`/`Suspicious Files`/`Emulator` 5。
 - `STATUS_NORMAL → maxScore`；`STATUS_WARNING → maxScore/2`（`warnOnly` 时仍取 maxScore）；`STATUS_DANGER → 0`。
 - 调试域 1.5× 权重在 [`MainActivity.applyDebugScoreWeight`](../app/src/main/java/anti/rusda/MainActivity.java)；调整权重时务必同步更新本文。
 
@@ -60,10 +61,10 @@ percent = round(100 × score / max)
 | 维度 | 项目数 | 单项 maxScore 累计 | × 权重 | 域满分 |
 |---|---|---|---|---|
 | Debug | 11 | 11 × 10 = 110 | × 1.5 | **165** |
-| Environment | 12 | 15+15+15+12+10+10+10+8+5+5+5+8 = 118 | × 1 | **118** |
-| **总计** | 23 | — | — | **283** |
+| Environment | 13 | 15+15+15+12+10+10+10+8+5+5+5+8+12 = 130 | × 1 | **130** |
+| **总计** | 24 | — | — | **295** |
 
-> 即首页"100"代表 `score/283 = 100%`。环境域含两项签名相关检测：E1 走 PackageManager、E11 走文件级解析（反签名伪装）。
+> 即首页"100"代表 `score/295 = 100%`。环境域含三项签名相关检测：E1 走 PackageManager、E11 走文件级解析（反签名伪装）、E13 查"绕过本身"的结构足迹（多通道一致性 + CreatorProxy/PmProxy/factory 劫持/fd·inode 重定向/seccomp 一致性）。
 
 ---
 
@@ -264,7 +265,7 @@ percent = round(100 × score / max)
 
 ---
 
-## Environment Tab · 12 项
+## Environment Tab · 13 项
 
 ### E1. App Signature
 
@@ -453,6 +454,34 @@ E1「App Signature」走 `PackageManager.getPackageInfo(GET_SIGNING_CERTIFICATES
 **判定**：强信号 ≥1 或弱信号 ≥2 → WARNING。阈值偏保守以避免低端真机误报（实测 Pixel 6 Pro 判 NORMAL）。
 
 **已知限制**：高仿云手机可注入伪造传感器列表与电池数据来绕过；本项是多通道之一，配合 E6 与 native 匿名内存/容器检测交叉印证，不单独作为判据。
+
+---
+
+### E13. Signature Bypass Footprint（签名绕过足迹）
+
+| 字段 | 值 |
+|---|---|
+| 实现 | [`EnvDetectionManager.detectSignatureBypass()`](../app/src/main/java/anti/rusda/detector/EnvDetectionManager.java) + [`apk_signature.cpp`](../app/src/main/cpp/detector/apk_signature.cpp)（`apk_fd_inode_consistent` / `seccomp_prctl_status_consistent`） |
+| maxScore | 12 |
+| 状态 | 任一硬信号命中 → DANGER；通道不可用按"跳过"，否则 NORMAL |
+
+**为什么需要它（E1 / E11 之外的第三层）**：
+E1 比对 PackageManager 报告值、E11 比对 APK 文件解析值，二者都在回答"**签名值是不是预期**"。成熟的过签框架（`CorePatch` 类签名伪装、以及把 `open(base.apk)` 重定向到原始包的自研运行时）会让**每条取证通道都返回原始签名**——值层面查不出来。本项换一个问法：不看签名值，而是查"**绕过这件事本身**"在运行时留下的结构足迹。检测手法参考白盒过签挑战 App（BypassApkSignature/testapp 的 24 项校验）中 E1/E11 未覆盖的部分。
+
+**六路足迹探针**（任一命中即判定 DANGER）：
+
+1. **多通道签名一致性**：同时取 `getPackageInfo(GET_SIGNATURES)`、`getPackageInfo(GET_SIGNING_CERTIFICATES)`、`getPackageArchiveInfo(sourceDir, GET_SIGNATURES)`、Native 文件解析（[E11](#e11-apk-repack-guard防改包--反签名伪装) 的 `nativeGetApkCertSha256FromFile`）四路证书 SHA-256。真品四路必然一致；若只 hook 了其中一条路径，结果分裂 → 有通道在骗人。
+2. **`PackageInfo.CREATOR` 真伪（CreatorProxy 检测）**：真品 Creator 是 boot 类加载器里的匿名类 `android.content.pm.PackageInfo$1`、零声明字段。过签框架用自定义 `Creator` 顶替以伪造 `signatures` 时，类名/类加载器/字段数任一对不上即暴露。
+3. **`IPackageManager`(`mPM`) 非动态 Proxy（PmProxy 检测）**：反射取 `ApplicationPackageManager.mPM`，要求它不是 `java.lang.reflect.Proxy` 且类名含 `IPackageManager`。框架换上动态代理拦截 `getPackageInfo`/`hasSigningCertificate` 时被识破。
+4. **`appComponentFactory` 完整性**：进程内 `ApplicationInfo.appComponentFactory` 与 PM 报告的 `getApplicationInfo(pkg,0).appComponentFactory` 必须一致。`appComponentFactory` 是 App 最早的代码注入点，过签工具常借它劫持启动流程（两值不一致即命中；正常的 `androidx.core.app.CoreComponentFactory` 两边相同，不误报）。
+5. **APK fd / maps inode 一致性（Native）**：`open(base.apk)` 后 `fstat` 取 `st_ino`，再读 `/proc/self/maps` 解析真正 mmap 进来的 `base.apk` 映射 inode。文件重定向把 `open` 指向替身包时，fd 的 inode 与 maps 中真包 inode 必然不一致（参考看雪 #9，最强的反重定向判据）。
+6. **seccomp prctl vs `/proc/self/status` 一致性（Native）**：`prctl(PR_GET_SECCOMP)`（内核真值）与 `/proc/self/status` 的 `Seccomp:` 字段（可被文件重定向伪造）须同为"有/无"。框架伪造 status 隐藏自身过滤器时两者矛盾。
+
+5、6 两路均经 inline `svc` / syscall 封装读取，绕开 libc GOT/PLT hook。
+
+**判定**：六路中任一硬信号（通道分裂 / Creator 仿冒 / mPM 被代理 / factory 劫持 / inode 不一致 / seccomp 不一致）→ DANGER；探针因平台限制取不到值（如 maps 无本包映射、老内核无 `Seccomp:` 行）一律按"跳过"处理，**不下危险结论**，以保证真机零误报（实测 Pixel 6 Pro 六路全 PASS）。
+
+**与 E1 / E11 的关系**：E1 = PackageManager 快速路径 + 启动期 fail-fast；E11 = 文件级 ground truth + 反伪装；E13 = 不依赖签名值的结构级反绕过。三者层层递进，针对的是"伪造签名值"无法掩盖的运行时痕迹。
 
 ---
 

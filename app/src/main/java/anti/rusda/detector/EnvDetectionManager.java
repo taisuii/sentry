@@ -79,6 +79,10 @@ public class EnvDetectionManager {
     private static native int nativeVerifyAppSignature(String sha256Hex);
     /** 从 APK 文件直接解析 v2/v3 签名块取证书 SHA-256（syscall 读文件，绕开可被 hook 的 PackageManager）；失败返回空串 */
     private static native String nativeGetApkCertSha256FromFile(String apkPath);
+    /** APK fd / maps inode 一致性（揭穿 open(base.apk) 文件重定向）：1=一致，0=被重定向(DANGER)，<0=无法判定 */
+    private static native int nativeApkFdInodeConsistent(String apkPath);
+    /** seccomp prctl 与 /proc/self/status 一致性（揭穿伪造 status）：1=一致，0=不一致(DANGER)，<0=无法判定 */
+    private static native int nativeSeccompConsistent();
 
     private final Context context;
 
@@ -90,6 +94,7 @@ public class EnvDetectionManager {
         List<DetectionResult> results = new ArrayList<>();
         results.add(detectAppSignature());
         results.add(detectApkTamper());
+        results.add(detectSignatureBypass());
         results.add(detectBootloader());
         results.add(detectRoot());
         results.add(detectXposedModules());
@@ -201,6 +206,188 @@ public class EnvDetectionManager {
         }
 
         return new DetectionResult("APK Repack Guard", "APK signature intact (file-level, anti-spoof)", DetectionResult.STATUS_NORMAL, 15, details);
+    }
+
+    /**
+     * 签名绕过足迹（结构级，参考 BypassApkSignature/testapp 的检测手法）。
+     *
+     * E1/E11 比对"签名值是否 = 预期"；过签框架（CorePatch / 自研重定向运行时）会从结构上
+     * 动手脚，让各取证通道都返回原始签名值。本项不看签名值，而是查"绕过这件事本身"的足迹，
+     * 覆盖 testapp 中 E1/E11 未做的技术：
+     *   1) 多通道签名一致性：GET_SIGNATURES / GET_SIGNING_CERTIFICATES / getPackageArchiveInfo
+     *      / Native 文件解析 四路取证，结果互相不一致 → 有通道被 hook 在骗人
+     *   2) PackageInfo.CREATOR 真伪：真品是 boot 类加载器里的 android.content.pm.PackageInfo$1、
+     *      零声明字段；CreatorProxy 仿冒会落在 App 类加载器 / 多出字段
+     *   3) IPackageManager(mPM) 是否被换成动态 Proxy（PmProxy）
+     *   4) appComponentFactory 完整性：进程内值 vs PM 报告值，过签常借 factory 做最早注入
+     *   5) APK fd / maps inode 一致性（Native）：揭穿 open(base.apk) 文件重定向
+     *   6) seccomp prctl vs /proc/self/status 一致性（Native）：揭穿伪造 status 隐藏过滤器
+     * 任一硬信号命中 → DANGER；通道不可用一律按"跳过"处理，避免误报。
+     */
+    private DetectionResult detectSignatureBypass() {
+        List<String> details = new ArrayList<>();
+        if (context == null) {
+            details.add("Context unavailable");
+            return new DetectionResult("Signature Bypass Footprint", "Check skipped", DetectionResult.STATUS_NORMAL, 12, details);
+        }
+        boolean danger = false;
+        final String pkg = context.getPackageName();
+        final PackageManager pm = context.getPackageManager();
+
+        /* 1) 多通道签名一致性：所有非空取证结果必须一致，否则有通道被伪装 */
+        try {
+            LinkedHashSet<String> shas = new LinkedHashSet<>();
+            String s1 = shaFromPm(pm, pkg, PackageManager.GET_SIGNATURES, false);
+            String s2 = shaFromPm(pm, pkg, PackageManager.GET_SIGNING_CERTIFICATES, true);
+            String s3 = shaFromArchive(pm, context);
+            String s4 = null;
+            try { s4 = nativeGetApkCertSha256FromFile(context.getApplicationInfo().sourceDir); } catch (Throwable ignored) { }
+            for (String s : new String[]{s1, s2, s3, s4}) {
+                if (s != null && !s.isEmpty()) shas.add(s.toLowerCase(Locale.ROOT));
+            }
+            if (shas.size() > 1) {
+                danger = true;
+                details.add("MISMATCH across " + shas.size() + " signature channels - a hook is faking one route");
+            } else if (shas.size() == 1) {
+                details.add("Signature channels agree (" + shorten8(shas.iterator().next()) + ")");
+            } else {
+                details.add("No signature channel returned a value");
+            }
+        } catch (Throwable t) {
+            details.add("channel check error: " + t.getClass().getSimpleName());
+        }
+
+        /* 2) PackageInfo.CREATOR 真伪（CreatorProxy 检测） */
+        try {
+            android.os.Parcelable.Creator<?> cr = PackageInfo.CREATOR;
+            Class<?> c = cr.getClass();
+            boolean nameOk = "android.content.pm.PackageInfo$1".equals(c.getName());
+            boolean bootCl = (c.getClassLoader() == PackageInfo.class.getClassLoader());
+            int nf = c.getDeclaredFields().length;
+            if (!(nameOk && bootCl && nf == 0)) {
+                danger = true;
+                details.add("PackageInfo.CREATOR spoofed (CreatorProxy): name=" + nameOk + " bootCL=" + bootCl + " fields=" + nf);
+            } else {
+                details.add("PackageInfo.CREATOR genuine");
+            }
+        } catch (Throwable t) {
+            details.add("CREATOR check error: " + t.getClass().getSimpleName());
+        }
+
+        /* 3) IPackageManager(mPM) 非动态 Proxy（PmProxy 检测） */
+        try {
+            java.lang.reflect.Field f = pm.getClass().getDeclaredField("mPM");
+            f.setAccessible(true);
+            Object mPM = f.get(pm);
+            if (mPM != null) {
+                String n = mPM.getClass().getName();
+                boolean proxied = java.lang.reflect.Proxy.isProxyClass(mPM.getClass());
+                if (proxied || !n.contains("IPackageManager")) {
+                    danger = true;
+                    details.add("IPackageManager proxied (PmProxy): mPM=" + shorten(n));
+                } else {
+                    details.add("IPackageManager genuine");
+                }
+            }
+        } catch (Throwable t) {
+            details.add("mPM check error: " + t.getClass().getSimpleName());
+        }
+
+        /* 4) appComponentFactory 完整性：进程内 vs PM 报告值 */
+        try {
+            String acfLocal = nz(context.getApplicationInfo().appComponentFactory);
+            String acfPm = "";
+            try { acfPm = nz(pm.getApplicationInfo(pkg, 0).appComponentFactory); } catch (Throwable ignored) { }
+            if (!acfLocal.equals(acfPm)) {
+                danger = true;
+                details.add("appComponentFactory hijacked: local='" + shorten(acfLocal) + "' pm='" + shorten(acfPm) + "'");
+            } else {
+                details.add(acfLocal.isEmpty() ? "appComponentFactory: none" : "appComponentFactory: " + shorten(acfLocal));
+            }
+        } catch (Throwable t) {
+            details.add("ACF check error: " + t.getClass().getSimpleName());
+        }
+
+        /* 5) Native fd / maps inode 一致性（文件重定向检测） */
+        try {
+            int r = nativeApkFdInodeConsistent(context.getApplicationInfo().sourceDir);
+            if (r == 0) {
+                danger = true;
+                details.add("APK fd/maps inode MISMATCH - base.apk open() redirected");
+            } else if (r == 1) {
+                details.add("APK fd/maps inode consistent");
+            } else {
+                details.add("inode check unavailable (" + r + ")");
+            }
+        } catch (Throwable t) {
+            details.add("inode check error: " + t.getClass().getSimpleName());
+        }
+
+        /* 6) Native seccomp prctl vs status 一致性（伪造 status 检测） */
+        try {
+            int r = nativeSeccompConsistent();
+            if (r == 0) {
+                danger = true;
+                details.add("seccomp prctl vs status MISMATCH - /proc/self/status faked");
+            } else if (r == 1) {
+                details.add("seccomp prctl/status consistent");
+            } else {
+                details.add("seccomp check unavailable (" + r + ")");
+            }
+        } catch (Throwable t) {
+            details.add("seccomp check error: " + t.getClass().getSimpleName());
+        }
+
+        if (danger) {
+            return new DetectionResult("Signature Bypass Footprint", "Signature-bypass framework detected", DetectionResult.STATUS_DANGER, 12, details);
+        }
+        return new DetectionResult("Signature Bypass Footprint", "No signature-bypass footprint", DetectionResult.STATUS_NORMAL, 12, details);
+    }
+
+    private static String nz(String s) { return s == null ? "" : s; }
+
+    private static String shorten(String s) {
+        if (s == null) return "null";
+        return s.length() > 28 ? s.substring(0, 28) + ".." : s;
+    }
+
+    private static String shorten8(String s) {
+        if (s == null) return "null";
+        return s.length() > 8 ? s.substring(0, 8) : s;
+    }
+
+    /** 经指定 PackageManager flag 取首签名证书 SHA-256；signingInfo=true 走 SigningInfo（API 28+）。失败返回 null。 */
+    @SuppressWarnings("deprecation")
+    private static String shaFromPm(PackageManager pm, String pkg, int flag, boolean signingInfo) {
+        try {
+            PackageInfo pi = pm.getPackageInfo(pkg, flag);
+            if (pi == null) return null;
+            if (signingInfo) {
+                if (pi.signingInfo == null) return null;
+                Signature[] sigs = pi.signingInfo.hasMultipleSigners()
+                        ? pi.signingInfo.getApkContentsSigners()
+                        : pi.signingInfo.getSigningCertificateHistory();
+                if (sigs == null || sigs.length == 0) return null;
+                return sha256Hex(sigs[0].toByteArray());
+            }
+            if (pi.signatures == null || pi.signatures.length == 0) return null;
+            return sha256Hex(pi.signatures[0].toByteArray());
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 经 getPackageArchiveInfo 解析已安装 APK 文件取首签名证书 SHA-256。失败返回 null。 */
+    @SuppressWarnings("deprecation")
+    private static String shaFromArchive(PackageManager pm, Context ctx) {
+        try {
+            String apk = ctx.getApplicationInfo().sourceDir;
+            PackageInfo pi = pm.getPackageArchiveInfo(apk, PackageManager.GET_SIGNATURES);
+            if (pi == null || pi.signatures == null || pi.signatures.length == 0) return null;
+            return sha256Hex(pi.signatures[0].toByteArray());
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     /**

@@ -285,3 +285,124 @@ done:
     my_close(fd);
     return ret;
 }
+
+/* ============================ 反绕过足迹（inode / seccomp 一致性） ============================ *
+ * 这两项不看签名值，而是查"绕过这件事本身"的足迹：文件重定向会让 fd 的 inode 与 maps 中
+ * base.apk 的 inode 对不上；伪造 /proc/self/status 会让它与 prctl 内核真值对不上。            */
+
+#if defined(__aarch64__)
+/* 原始 svc，绕开 libc：补 syscall_utils 没有封装的 fstat / prctl。 */
+static long sentry_svc6(long nr, long a0, long a1, long a2, long a3, long a4, long a5) {
+    register long x8 asm("x8") = nr;
+    register long x0 asm("x0") = a0; register long x1 asm("x1") = a1;
+    register long x2 asm("x2") = a2; register long x3 asm("x3") = a3;
+    register long x4 asm("x4") = a4; register long x5 asm("x5") = a5;
+    asm volatile("svc #0" : "+r"(x0)
+                 : "r"(x8), "r"(x1), "r"(x2), "r"(x3), "r"(x4), "r"(x5)
+                 : "memory", "cc");
+    return x0;
+}
+#define SENTRY_NR_fstat 80
+#define SENTRY_NR_prctl 167
+#define SENTRY_PR_GET_SECCOMP 21
+
+/* 读小文件到 buf（'\0' 结尾），用 syscall open/read；返回字节数，失败 <=0。 */
+static long sentry_read_small_file(const char *path, char *buf, long cap) {
+    int fd = my_open(path, O_RDONLY, 0);
+    if (fd < 0) return -1;
+    long got = 0;
+    while (got < cap - 1) {
+        ssize_t r = my_read(fd, buf + got, (size_t)(cap - 1 - got));
+        if (r <= 0) break;
+        got += r;
+    }
+    my_close(fd);
+    buf[got < 0 ? 0 : got] = '\0';
+    return got;
+}
+#endif
+
+int apk_fd_inode_consistent(const char *apk_path) {
+#if defined(__aarch64__)
+    if (!apk_path || !apk_path[0]) return -1;
+
+    int fd = my_open(apk_path, O_RDONLY, 0);
+    if (fd < 0) return -1;
+    /* aarch64 内核 struct stat：st_dev @0(8B)，st_ino @8(8B)。预留 144B 足够。 */
+    unsigned char st[144];
+    for (int i = 0; i < 144; i++) st[i] = 0;
+    long r = sentry_svc6(SENTRY_NR_fstat, fd, (long)st, 0, 0, 0, 0);
+    my_close(fd);
+    if (r < 0) return -2;
+    unsigned long long fd_ino = *(unsigned long long *)(st + 8);
+
+    long cap = 1 << 18;  /* 256KB maps 缓冲 */
+    char *buf = (char *)malloc((size_t)cap);
+    if (!buf) return -3;
+    long n = sentry_read_small_file("/proc/self/maps", buf, cap);
+    if (n <= 0) { free(buf); return -3; }
+
+    int result = -4;  /* 默认：maps 中未找到 base.apk 映射 */
+    char *line = buf;
+    for (char *s = buf; ; s++) {
+        if (*s == '\n' || *s == '\0') {
+            char save = *s;
+            *s = '\0';
+            if (my_strstr(line, apk_path)) {
+                /* maps 行：addr perms offset dev inode path —— inode 是第 5 字段 */
+                const char *q = line;
+                int f = 0;
+                while (*q && f < 4) {
+                    while (*q && *q != ' ') q++;
+                    while (*q == ' ') q++;
+                    f++;
+                }
+                unsigned long long maps_ino = 0;
+                while (*q >= '0' && *q <= '9') { maps_ino = maps_ino * 10 + (unsigned)(*q - '0'); q++; }
+                result = (maps_ino == fd_ino) ? 1 : 0;
+                *s = save;
+                break;
+            }
+            *s = save;
+            if (save == '\0') break;
+            line = s + 1;
+        }
+    }
+    free(buf);
+    return result;
+#else
+    (void)apk_path;
+    return -1;
+#endif
+}
+
+int seccomp_prctl_status_consistent(void) {
+#if defined(__aarch64__)
+    long mode = sentry_svc6(SENTRY_NR_prctl, SENTRY_PR_GET_SECCOMP, 0, 0, 0, 0, 0);
+    if (mode < 0) return -1;  /* prctl 不可用 */
+
+    long cap = 1 << 16;
+    char *buf = (char *)malloc((size_t)cap);
+    if (!buf) return -2;
+    long n = sentry_read_small_file("/proc/self/status", buf, cap);
+    if (n <= 0) { free(buf); return -3; }
+
+    int st = -1;
+    for (char *s = buf; *s; s++) {
+        if (s[0]=='S'&&s[1]=='e'&&s[2]=='c'&&s[3]=='c'&&s[4]=='o'&&s[5]=='m'&&s[6]=='p'&&s[7]==':') {
+            const char *q = s + 8;
+            while (*q == ' ' || *q == '\t') q++;
+            if (*q >= '0' && *q <= '9') st = *q - '0';
+            break;
+        }
+    }
+    free(buf);
+    if (st < 0) return -4;  /* status 无 Seccomp 行（老内核）→ 不判定 */
+
+    int prctl_on = (mode != 0);
+    int status_on = (st != 0);
+    return (prctl_on == status_on) ? 1 : 0;
+#else
+    return -1;
+#endif
+}
