@@ -27,6 +27,10 @@ if(ANDROID_ABI STREQUAL "arm64-v8a")
     target_link_options(${CMAKE_PROJECT_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
 endif()
 
+# 符号收敛：.so 只导出 JNI_OnLoad，隐藏所有 Java_*/内部符号（配合 RegisterNatives 动态绑定）
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+    "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/jni.map")
+
 # Add include directories
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -59,3 +63,6 @@ target_link_libraries(envdetect
 if(ANDROID_ABI STREQUAL "arm64-v8a")
     target_link_options(envdetect PRIVATE "-Wl,-z,max-page-size=16384")
 endif()
+# 加固：envdetect 同样只导出 JNI_OnLoad
+target_link_options(envdetect PRIVATE
+    "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/jni.map")

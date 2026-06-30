@@ -60,3 +60,4 @@ Thumbs.db
 # Local build artifacts & helper (machine-specific, not for VCS)
 local-build/
 build_in_wsl.sh
+build_harden.sh

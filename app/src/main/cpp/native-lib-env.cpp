@@ -1,11 +1,22 @@
 #include <jni.h>
 #include <cstring>
+#include <cstdlib>
 #include <string>
+#include <android/log.h>
 #include "detector/env_detector.h"
 #include "detector/signature_checker.h"
 #include "detector/apk_signature.h"
 
 #define MAX_DETAILS 16
+#define LOG_TAG "SentryTag"
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+/*
+ * 加固：与 libantidebug 一致，JNI 实现全部 static + 不透明名，运行时 RegisterNatives
+ * 动态绑定；version script 只导出 JNI_OnLoad。.so 里不再出现 Java_<class>_<method>。
+ * 注意跨类：nativeDetectZygiskInjection 属于 DebugDetectionManager，
+ *          nativeGetProcVersion 属于 DeviceFingerprintCollector。
+ */
 
 static jobjectArray buildResult(JNIEnv *env, int status, const char *summary,
                                 char (*details)[256], int detail_count) {
@@ -30,15 +41,11 @@ static jobjectArray buildResult(JNIEnv *env, int status, const char *summary,
     return arr;
 }
 
-extern "C" {
-
-JNIEXPORT jstring JNICALL
-Java_anti_rusda_detector_EnvDetectionManager_nativeGetEnvVersion(JNIEnv *env, jclass clazz) {
+static jstring JNICALL e0(JNIEnv *env, jclass) {  /* EnvDetectionManager.nativeGetEnvVersion */
     return env->NewStringUTF("1.2");
 }
 
-JNIEXPORT jstring JNICALL
-Java_anti_rusda_detector_DeviceFingerprintCollector_nativeGetProcVersion(JNIEnv *env, jclass clazz) {
+static jstring JNICALL e1(JNIEnv *env, jclass) {  /* DeviceFingerprintCollector.nativeGetProcVersion */
     char *ver = env_read_proc_version();
     if (!ver) return env->NewStringUTF("");
     jstring result = env->NewStringUTF(ver);
@@ -46,88 +53,62 @@ Java_anti_rusda_detector_DeviceFingerprintCollector_nativeGetProcVersion(JNIEnv 
     return result;
 }
 
-// Magisk detection: returns String[] { status, summary, detail0, ... }; status 2 = DANGER
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_EnvDetectionManager_nativeDetectMagisk(JNIEnv *env, jclass clazz) {
+static jobjectArray JNICALL e2(JNIEnv *env, jclass) {  /* nativeDetectMagisk */
     char details[MAX_DETAILS][256];
     int n = env_detect_magisk(details, MAX_DETAILS);
-    int status = n > 0 ? 2 : 0;  // 2 = DANGER
-    const char *summary = n > 0
-        ? "Magisk or root indicator(s) found"
-        : "No Magisk detected";
+    int status = n > 0 ? 2 : 0;
+    const char *summary = n > 0 ? "Magisk or root indicator(s) found" : "No Magisk detected";
     return buildResult(env, status, summary, details, n);
 }
 
-// Bootloader: returns String[] { status, summary, ... }; status 2 = DANGER
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_EnvDetectionManager_nativeDetectBootloader(JNIEnv *env, jclass clazz) {
+static jobjectArray JNICALL e3(JNIEnv *env, jclass) {  /* nativeDetectBootloader */
     char details[MAX_DETAILS][256];
     int status;
     int n = env_detect_bootloader(&status, details, MAX_DETAILS);
-    const char *summary = (status == 2)
-        ? "Bootloader unlocked or verity disabled"
-        : (status == 1)
-            ? "Bootloader state uncertain"
-            : "Bootloader locked or unknown";
+    const char *summary = (status == 2) ? "Bootloader unlocked or verity disabled"
+        : (status == 1) ? "Bootloader state uncertain" : "Bootloader locked or unknown";
     return buildResult(env, status, summary, details, n);
 }
 
-// Dirty page / memory injection (Debug tab): Smaps Private_Dirty + VMap + Pagemap bit 55; returns String[] { status, summary, ... }
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_DebugDetectionManager_nativeDetectZygiskInjection(JNIEnv *env, jclass clazz) {
+static jobjectArray JNICALL e4(JNIEnv *env, jclass) {  /* DebugDetectionManager.nativeDetectZygiskInjection */
     char details[MAX_DETAILS][256];
     int n = env_detect_zygisk_injection(details, MAX_DETAILS);
-    int status = n > 0 ? 2 : 0;  // 2 = DANGER
-    const char *summary = n > 0
-        ? "Dirty page or memory injection detected"
+    int status = n > 0 ? 2 : 0;
+    const char *summary = n > 0 ? "Dirty page or memory injection detected"
         : "No dirty page or memory injection detected";
     return buildResult(env, status, summary, details, n);
 }
 
-// Suspicious files: returns String[] { status, summary, ... }; status 2 = DANGER
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_EnvDetectionManager_nativeDetectSuspiciousFiles(JNIEnv *env, jclass clazz) {
+static jobjectArray JNICALL e5(JNIEnv *env, jclass) {  /* nativeDetectSuspiciousFiles */
     char details[MAX_DETAILS][256];
     int n = env_detect_suspicious_files(details, MAX_DETAILS);
     int status = n > 0 ? 2 : 0;
-    const char *summary = n > 0
-        ? "Suspicious file(s) detected"
-        : "No suspicious files detected";
+    const char *summary = n > 0 ? "Suspicious file(s) detected" : "No suspicious files detected";
     return buildResult(env, status, summary, details, n);
 }
 
-// Port check for ADB 5555 etc. (uses syscall)
-JNIEXPORT jboolean JNICALL
-Java_anti_rusda_detector_EnvDetectionManager_nativeCheckPort(JNIEnv *env, jclass clazz, jint port) {
+static jboolean JNICALL e6(JNIEnv *env, jclass, jint port) {  /* nativeCheckPort */
     return env_check_port_open(static_cast<int>(port)) ? JNI_TRUE : JNI_FALSE;
 }
 
-// ADB detection: multi-channel Native (syscall), returns String[] { status, summary, detail0, ... }
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_EnvDetectionManager_nativeDetectAdb(JNIEnv *env, jclass clazz) {
+static jobjectArray JNICALL e7(JNIEnv *env, jclass) {  /* nativeDetectAdb */
     char details[MAX_DETAILS][256];
     int n = env_detect_adb(details, MAX_DETAILS);
-    int status = n > 0 ? 1 : 0;  /* 1 = WARNING */
-    const char *summary = n > 0
-        ? "ADB/developer indicators detected (Native syscall)"
+    int status = n > 0 ? 1 : 0;
+    const char *summary = n > 0 ? "ADB/developer indicators detected (Native syscall)"
         : "No ADB indicators (Native syscall)";
     return buildResult(env, status, summary, details, n);
 }
 
-// Cgroup container check: returns String[] { status, detail }
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_EnvDetectionManager_nativeCheckCgroup(JNIEnv *env, jclass clazz) {
+static jobjectArray JNICALL e8(JNIEnv *env, jclass) {  /* nativeCheckCgroup */
     char details[MAX_DETAILS][256];
     int n = env_detect_cgroup(details, MAX_DETAILS);
-    int status = n > 0 ? 2 : 0;  /* 2 = DANGER */
-    const char *detail = n > 0 ? details[0] : "";
-    return buildResult(env, status, n > 0 ? "Container/virtualization detected" : "No container detected", details, n > 0 ? n : 0);
+    int status = n > 0 ? 2 : 0;
+    return buildResult(env, status, n > 0 ? "Container/virtualization detected" : "No container detected",
+                       details, n > 0 ? n : 0);
 }
 
-// Dangerous Apps: verify APKs via syscall (assets/xposed_init) + modules.list; returns String[] of package names
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_EnvDetectionManager_nativeVerifyXposedModules(JNIEnv *env, jclass clazz,
-        jobjectArray apkPaths, jobjectArray packageNames) {
+static jobjectArray JNICALL e9(JNIEnv *env, jclass, jobjectArray apkPaths, jobjectArray packageNames) {  /* nativeVerifyXposedModules */
     if (!apkPaths || !packageNames) return nullptr;
     jsize count = env->GetArrayLength(apkPaths);
     if (count != env->GetArrayLength(packageNames) || count <= 0) return nullptr;
@@ -168,12 +149,7 @@ Java_anti_rusda_detector_EnvDetectionManager_nativeVerifyXposedModules(JNIEnv *e
     return result;
 }
 
-// APK file-level signing cert SHA-256 (anti-repackage + anti signature-spoof):
-// parses v2/v3 signing block directly from the APK file via syscall, bypassing
-// PackageManager (which CorePatch/fake-signature modules can hook). Returns
-// 64-hex lowercase, or "" on failure.
-JNIEXPORT jstring JNICALL
-Java_anti_rusda_detector_EnvDetectionManager_nativeGetApkCertSha256FromFile(JNIEnv *env, jclass clazz, jstring apkPath) {
+static jstring JNICALL e10(JNIEnv *env, jclass, jstring apkPath) {  /* nativeGetApkCertSha256FromFile */
     if (!apkPath) return env->NewStringUTF("");
     const char *path = env->GetStringUTFChars(apkPath, nullptr);
     if (!path) return env->NewStringUTF("");
@@ -184,9 +160,7 @@ Java_anti_rusda_detector_EnvDetectionManager_nativeGetApkCertSha256FromFile(JNIE
     return env->NewStringUTF(r == 0 ? hex : "");
 }
 
-// App signature verification (anti-repackage): current SHA-256 hex from Java, compare with build-time expected
-JNIEXPORT jint JNICALL
-Java_anti_rusda_detector_EnvDetectionManager_nativeVerifyAppSignature(JNIEnv *env, jclass clazz, jstring sha256Hex) {
+static jint JNICALL e11(JNIEnv *env, jclass, jstring sha256Hex) {  /* nativeVerifyAppSignature */
     if (!sha256Hex) return 2;
     const char *hex = env->GetStringUTFChars(sha256Hex, nullptr);
     if (!hex) return 2;
@@ -195,10 +169,8 @@ Java_anti_rusda_detector_EnvDetectionManager_nativeVerifyAppSignature(JNIEnv *en
     return status;
 }
 
-// Emulator: Java passes Build.*; native checks files + indicators
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_EnvDetectionManager_nativeDetectEmulator(JNIEnv *env, jclass clazz,
-        jstring jHardware, jstring jProduct, jstring jDevice, jstring jBrand) {
+static jobjectArray JNICALL e12(JNIEnv *env, jclass, jstring jHardware, jstring jProduct,
+                                jstring jDevice, jstring jBrand) {  /* nativeDetectEmulator */
     const char *hardware = jHardware ? env->GetStringUTFChars(jHardware, nullptr) : "";
     const char *product = jProduct ? env->GetStringUTFChars(jProduct, nullptr) : "";
     const char *device = jDevice ? env->GetStringUTFChars(jDevice, nullptr) : "";
@@ -213,10 +185,46 @@ Java_anti_rusda_detector_EnvDetectionManager_nativeDetectEmulator(JNIEnv *env, j
     if (jBrand) env->ReleaseStringUTFChars(jBrand, brand);
 
     int status = n > 0 ? 1 : 0;
-    const char *summary = n > 0
-        ? "Emulator indicator(s) found"
-        : "Running on physical device";
+    const char *summary = n > 0 ? "Emulator indicator(s) found" : "Running on physical device";
     return buildResult(env, status, summary, details, n);
 }
 
-} // extern "C"
+static const JNINativeMethod kEnvMethods[] = {
+    { "nativeGetEnvVersion",            "()Ljava/lang/String;",                                                              (void *)e0 },
+    { "nativeDetectMagisk",             "()[Ljava/lang/String;",                                                             (void *)e2 },
+    { "nativeDetectBootloader",         "()[Ljava/lang/String;",                                                             (void *)e3 },
+    { "nativeDetectSuspiciousFiles",    "()[Ljava/lang/String;",                                                             (void *)e5 },
+    { "nativeCheckPort",                "(I)Z",                                                                              (void *)e6 },
+    { "nativeDetectAdb",                "()[Ljava/lang/String;",                                                             (void *)e7 },
+    { "nativeCheckCgroup",              "()[Ljava/lang/String;",                                                             (void *)e8 },
+    { "nativeVerifyXposedModules",      "([Ljava/lang/String;[Ljava/lang/String;)[Ljava/lang/String;",                      (void *)e9 },
+    { "nativeGetApkCertSha256FromFile", "(Ljava/lang/String;)Ljava/lang/String;",                                           (void *)e10 },
+    { "nativeVerifyAppSignature",       "(Ljava/lang/String;)I",                                                            (void *)e11 },
+    { "nativeDetectEmulator",           "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;", (void *)e12 },
+};
+static const JNINativeMethod kDbgMethods[] = {
+    { "nativeDetectZygiskInjection",    "()[Ljava/lang/String;", (void *)e4 },
+};
+static const JNINativeMethod kFpMethods[] = {
+    { "nativeGetProcVersion",           "()Ljava/lang/String;",  (void *)e1 },
+};
+
+static void reg(JNIEnv *env, const char *cls, const JNINativeMethod *m, int n) {
+    jclass c = env->FindClass(cls);
+    if (c == nullptr) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        LOGE("FindClass(%s) failed", cls);
+        return;
+    }
+    if (env->RegisterNatives(c, m, n) != 0) LOGE("RegisterNatives(%s) failed", cls);
+    env->DeleteLocalRef(c);
+}
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
+    JNIEnv *env = nullptr;
+    if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK || !env) return JNI_ERR;
+    reg(env, "anti/rusda/detector/EnvDetectionManager",      kEnvMethods, (int)(sizeof(kEnvMethods) / sizeof(kEnvMethods[0])));
+    reg(env, "anti/rusda/detector/DebugDetectionManager",    kDbgMethods, (int)(sizeof(kDbgMethods) / sizeof(kDbgMethods[0])));
+    reg(env, "anti/rusda/detector/DeviceFingerprintCollector", kFpMethods, (int)(sizeof(kFpMethods) / sizeof(kFpMethods[0])));
+    return JNI_VERSION_1_6;
+}

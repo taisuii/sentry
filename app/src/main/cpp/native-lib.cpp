@@ -18,14 +18,19 @@
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-extern "C" {
+/*
+ * 加固：JNI 函数不再用 Java_<class>_<method> 静态命名导出（那会把 native 函数名与
+ * 对应 Java 方法直接暴露在 .so 动态符号表里，还逼着 Java 类名不能被混淆）。
+ * 改为：实现函数全部 static + 不透明名（编译后符号被裁剪），运行时在 JNI_OnLoad
+ * 里用 RegisterNatives 动态绑定。配合 version script，.so 只导出 JNI_OnLoad。
+ */
 
-// Xposed path/fd detection: String[] { status, summary, detail0, ... }; uses syscall for paths
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_DebugDetectionManager_nativeDetectXposedPaths(JNIEnv *env, jclass clazz) {
+/* ===== DebugDetectionManager 的 native 实现（static，不透明名） ===== */
+
+static jobjectArray JNICALL h0(JNIEnv *env, jclass clazz) {  /* nativeDetectXposedPaths */
     char details[MAX_MEMORY_DETAILS][256];
     int n = get_xposed_path_and_fd_details(details, MAX_MEMORY_DETAILS);
-    int status = (n > 0) ? 2 : 0;  /* 2 = DANGER, 0 = NORMAL */
+    int status = (n > 0) ? 2 : 0;
     jclass stringClass = env->FindClass("java/lang/String");
     if (!stringClass) return nullptr;
     int arrLen = 2 + (n > 0 ? n : 1);
@@ -43,15 +48,13 @@ Java_anti_rusda_detector_DebugDetectionManager_nativeDetectXposedPaths(JNIEnv *e
     return arr;
 }
 
-// SO Code Integrity：CRC(主) + GOT + 端口 + 匿名段 + 关键函数头部
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_DebugDetectionManager_nativeGetSoIntegrityResult(JNIEnv *env, jclass clazz) {
+static jobjectArray JNICALL h1(JNIEnv *env, jclass clazz) {  /* nativeGetSoIntegrityResult */
     LOGD("[SO] check start");
-    int r1 = check_libc_text_integrity();   /* 方案1: CRC 检测（主） */
-    int r2 = detect_frida_got_hook();       /* 方案2: GOT 表 */
-    int r3 = check_frida_port();            /* 方案3: 端口预检 */
-    int r4 = scan_suspicious_anonymous_rx_memory();  /* 方案4: 匿名段 */
-    int r0 = check_critical_functions();    /* 辅助: 关键函数头部 */
+    int r1 = check_libc_text_integrity();
+    int r2 = detect_frida_got_hook();
+    int r3 = check_frida_port();
+    int r4 = scan_suspicious_anonymous_rx_memory();
+    int r0 = check_critical_functions();
     int status = (r1 == 1 || r2 == 1 || r3 == 1 || r4 == 1 || r0 == 1) ? 2 : 0;
     jclass stringClass = env->FindClass("java/lang/String");
     if (!stringClass) return nullptr;
@@ -73,12 +76,10 @@ Java_anti_rusda_detector_DebugDetectionManager_nativeGetSoIntegrityResult(JNIEnv
     return arr;
 }
 
-// ArtMethod 入口检测：Java 传入 jclass，Native 取关键方法 entry_point 是否在 libart/oat 外。返回值 -1 => Check skipped
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_DebugDetectionManager_nativeGetArtMethodCheckResult(JNIEnv *env, jclass clazz, jclass targetClass) {
+static jobjectArray JNICALL h2(JNIEnv *env, jclass clazz, jclass targetClass) {  /* nativeGetArtMethodCheckResult */
     char detailBuf[256];
     int r = art_method_check_entry_points(env, targetClass, detailBuf, sizeof(detailBuf));
-    int status = (r == 1) ? 2 : 0;  /* 1=DANGER, 0=NORMAL, -1=skipped => NORMAL */
+    int status = (r == 1) ? 2 : 0;
     jclass stringClass = env->FindClass("java/lang/String");
     if (!stringClass) return nullptr;
     jobjectArray arr = env->NewObjectArray(3, stringClass, nullptr);
@@ -93,11 +94,9 @@ Java_anti_rusda_detector_DebugDetectionManager_nativeGetArtMethodCheckResult(JNI
     return arr;
 }
 
-// Hook 陷阱检测（SIGTRAP）：若本进程信号未被我们自己的 handler 捕获则疑为被劫持。返回值 -1 => Check skipped
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_DebugDetectionManager_nativeGetTrapCheckResult(JNIEnv *env, jclass clazz) {
+static jobjectArray JNICALL h3(JNIEnv *env, jclass clazz) {  /* nativeGetTrapCheckResult */
     int r = detect_trap_signal_handled();
-    int status = (r == 1) ? 2 : 0;  /* 1=DANGER, 0=NORMAL, -1=skipped => NORMAL */
+    int status = (r == 1) ? 2 : 0;
     jclass stringClass = env->FindClass("java/lang/String");
     if (!stringClass) return nullptr;
     jobjectArray arr = env->NewObjectArray(3, stringClass, nullptr);
@@ -113,11 +112,9 @@ Java_anti_rusda_detector_DebugDetectionManager_nativeGetTrapCheckResult(JNIEnv *
     return arr;
 }
 
-// Hook detection for Java: String[] { status, summary, detail }; enhances Xposed detection
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_DebugDetectionManager_nativeDetectHook(JNIEnv *env, jclass clazz) {
+static jobjectArray JNICALL h4(JNIEnv *env, jclass clazz) {  /* nativeDetectHook */
     bool hooked = detect_hooks();
-    int status = hooked ? 2 : 0;  /* 2 = DANGER, 0 = NORMAL */
+    int status = hooked ? 2 : 0;
     jclass stringClass = env->FindClass("java/lang/String");
     if (!stringClass) return nullptr;
     jobjectArray arr = env->NewObjectArray(3, stringClass, nullptr);
@@ -128,13 +125,10 @@ Java_anti_rusda_detector_DebugDetectionManager_nativeDetectHook(JNIEnv *env, jcl
     return arr;
 }
 
-// Memory signature result for Java: String[] { status, summary, detail0, ... } (uses syscall)
-// advancedChecks=true: anon exec memory threshold 4KB (vs 128KB default). n<0 => Check skipped.
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_DebugDetectionManager_nativeGetMemorySignatureResult(JNIEnv *env, jclass clazz, jboolean advancedChecks) {
+static jobjectArray JNICALL h5(JNIEnv *env, jclass clazz, jboolean advancedChecks) {  /* nativeGetMemorySignatureResult */
     char details[MAX_MEMORY_DETAILS][256];
     int n = get_memory_signature_details_ex(details, MAX_MEMORY_DETAILS, advancedChecks ? 1 : 0);
-    int status = (n > 0) ? 2 : 0;  // 2 = DANGER, 0 = NORMAL (含 n<0 无法检查)
+    int status = (n > 0) ? 2 : 0;
     jclass stringClass = env->FindClass("java/lang/String");
     if (!stringClass) return nullptr;
     int arrLen = 2 + (n > 0 ? n : 1);
@@ -156,12 +150,10 @@ Java_anti_rusda_detector_DebugDetectionManager_nativeGetMemorySignatureResult(JN
     return arr;
 }
 
-// Frida thread detection for Java: String[] { status, summary, detail0, ... }; uses syscall. n<0 => Check skipped.
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_DebugDetectionManager_nativeDetectFridaThreads(JNIEnv *env, jclass clazz) {
+static jobjectArray JNICALL h6(JNIEnv *env, jclass clazz) {  /* nativeDetectFridaThreads */
     char details[MAX_MEMORY_DETAILS][256];
     int n = get_frida_thread_details(details, MAX_MEMORY_DETAILS);
-    int status = (n > 0) ? 2 : 0;  /* 2 = DANGER, 0 = NORMAL (含 n<0 无法检查) */
+    int status = (n > 0) ? 2 : 0;
     jclass stringClass = env->FindClass("java/lang/String");
     if (!stringClass) return nullptr;
     int arrLen = 2 + (n > 0 ? n : 1);
@@ -183,19 +175,16 @@ Java_anti_rusda_detector_DebugDetectionManager_nativeDetectFridaThreads(JNIEnv *
     return arr;
 }
 
-// Port scan result for Java: String[] { status, summary, detail0, detail1, ... }
-// Includes Frida ports + frida-server process + Frida processes (re.frida.helper etc.)
-JNIEXPORT jobjectArray JNICALL
-Java_anti_rusda_detector_DebugDetectionManager_nativeGetFridaPortScanResult(JNIEnv *env, jclass clazz) {
+static jobjectArray JNICALL h7(JNIEnv *env, jclass clazz) {  /* nativeGetFridaPortScanResult */
     detect_frida_ports();
     int portCount = get_frida_port_open_count();
     int processCount = get_frida_process_detail_count();
     int dbusCount = get_frida_dbus_detail_count();
     int n = portCount + processCount + dbusCount;
-    int status = (n > 0) ? 2 : 0;  // 2 = DANGER, 0 = NORMAL
+    int status = (n > 0) ? 2 : 0;
     jclass stringClass = env->FindClass("java/lang/String");
     if (!stringClass) return nullptr;
-    int arrLen = 2 + (n > 0 ? n : 1);  // status, summary, then n details or 1 "All closed"
+    int arrLen = 2 + (n > 0 ? n : 1);
     jobjectArray arr = env->NewObjectArray(arrLen, stringClass, nullptr);
     if (!arr) return nullptr;
     env->SetObjectArrayElement(arr, 0, env->NewStringUTF(status == 2 ? "2" : "0"));
@@ -230,10 +219,7 @@ Java_anti_rusda_detector_DebugDetectionManager_nativeGetFridaPortScanResult(JNIE
     return arr;
 }
 
-// ClassLinker class_loaders_ list node count (ART memory scan)
-// Returns int[3] = { count, cl_offset, list_offset }; count < 0 means scan failed.
-JNIEXPORT jintArray JNICALL
-Java_anti_rusda_detector_DebugDetectionManager_nativeDetectClassLoaderCount(JNIEnv *env, jclass clazz) {
+static jintArray JNICALL h8(JNIEnv *env, jclass clazz) {  /* nativeDetectClassLoaderCount */
     int cl_off = -1, list_off = -1;
     int count = detect_classloader_count(env, &cl_off, &list_off);
     jintArray arr = env->NewIntArray(3);
@@ -243,4 +229,35 @@ Java_anti_rusda_detector_DebugDetectionManager_nativeDetectClassLoaderCount(JNIE
     return arr;
 }
 
-} // extern "C"
+/* RegisterNatives 绑定表：方法名/签名仍需与 Java 侧匹配（Java 侧本就可见），
+ * 但 .so 里不再有 Java_<class>_<method> 符号，函数地址需逆向 JNI_OnLoad 才能定位。 */
+static const JNINativeMethod kDebugMethods[] = {
+    { "nativeDetectXposedPaths",        "()[Ljava/lang/String;",                  (void *)h0 },
+    { "nativeGetSoIntegrityResult",     "()[Ljava/lang/String;",                  (void *)h1 },
+    { "nativeGetArtMethodCheckResult",  "(Ljava/lang/Class;)[Ljava/lang/String;", (void *)h2 },
+    { "nativeGetTrapCheckResult",       "()[Ljava/lang/String;",                  (void *)h3 },
+    { "nativeDetectHook",               "()[Ljava/lang/String;",                  (void *)h4 },
+    { "nativeGetMemorySignatureResult", "(Z)[Ljava/lang/String;",                 (void *)h5 },
+    { "nativeDetectFridaThreads",       "()[Ljava/lang/String;",                  (void *)h6 },
+    { "nativeGetFridaPortScanResult",   "()[Ljava/lang/String;",                  (void *)h7 },
+    { "nativeDetectClassLoaderCount",   "()[I",                                   (void *)h8 },
+};
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
+    JNIEnv *env = nullptr;
+    if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK || !env) {
+        return JNI_ERR;
+    }
+    jclass cls = env->FindClass("anti/rusda/detector/DebugDetectionManager");
+    if (cls != nullptr) {
+        int n = (int)(sizeof(kDebugMethods) / sizeof(kDebugMethods[0]));
+        if (env->RegisterNatives(cls, kDebugMethods, n) != 0) {
+            LOGE("RegisterNatives(DebugDetectionManager) failed");
+        }
+        env->DeleteLocalRef(cls);
+    } else {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        LOGE("FindClass(DebugDetectionManager) failed");
+    }
+    return JNI_VERSION_1_6;
+}

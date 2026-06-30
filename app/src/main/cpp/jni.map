@@ -1,0 +1,9 @@
+/* 链接器 version script：.so 只导出 JNI_OnLoad，其余符号全部 local 隐藏。
+ * 配合 RegisterNatives，动态符号表里不再有 Java_<class>_<method> 等可读名字；
+ * 构造函数(.init_array)无需导出仍会被加载器调用。 */
+{
+    global:
+        JNI_OnLoad;
+    local:
+        *;
+};
